@@ -1,0 +1,17 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/MotorCredito.Dominio/MotorCredito.Dominio.csproj" />
+    <Project Path="src/MotorCredito.Infraestrutura/MotorCredito.Infraestrutura.csproj" />
+    <Project Path="src/MotorCredito.Lambda.ConsultaProposta/MotorCredito.Lambda.ConsultaProposta.csproj" />
+    <Project Path="src/MotorCredito.Lambda.DespachanteNotificacao/MotorCredito.Lambda.DespachanteNotificacao.csproj" />
+    <Project Path="src/MotorCredito.Lambda.MotorRegrasScore/MotorCredito.Lambda.MotorRegrasScore.csproj" />
+    <Project Path="src/MotorCredito.Lambda.ProcessadorProposta/MotorCredito.Lambda.ProcessadorProposta.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/MotorCredito.Arquitetura.Tests/MotorCredito.Arquitetura.Tests.csproj" />
+    <Project Path="tests/MotorCredito.Lambda.ConsultaProposta.Tests/MotorCredito.Lambda.ConsultaProposta.Tests.csproj" />
+    <Project Path="tests/MotorCredito.Lambda.DespachanteNotificacao.Tests/MotorCredito.Lambda.DespachanteNotificacao.Tests.csproj" />
+    <Project Path="tests/MotorCredito.Lambda.MotorRegrasScore.Tests/MotorCredito.Lambda.MotorRegrasScore.Tests.csproj" />
+    <Project Path="tests/MotorCredito.Lambda.ProcessadorProposta.Tests/MotorCredito.Lambda.ProcessadorProposta.Tests.csproj" />
+  </Folder>
+</Solution>

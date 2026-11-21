@@ -1,0 +1,2204 @@
+===== _context/changelog.md =====
+# Changelog
+
+Histórico de mudanças do projeto, da mais recente para a mais antiga. Formato inspirado no [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/). Regras na spec 00, seção 4.8.
+
+## 2026-11-21
+
+### Adicionado
+
+- Spec 01 implementada: solution `.slnx`, projetos de domínio, infraestrutura, quatro Lambdas e projetos de testes.
+- Configuração `.NET 10`, pacotes centralizados e script de empacotamento das quatro Lambdas.
+- Linha de testes de arquitetura na seção 10 do README.
+- Spec 00 — constituição e convenções do projeto, incluindo o modelo de spec.
+- `_context/memory.md` e `_context/changelog.md`.
+- ADRs 0001 a 0004.
+- Arquivos do Copilot em `.github/`: instruções globais, instruções para `src/` e `tests/` e o prompt `implementar-especificacao`.
+- `.gitignore` padrão do .NET, ignorando também `.env` e `dist/`.
+
+### Alterado
+
+- README reescrito para C# / .NET 10.
+- Specs movidas para `_context/specs/` e renumeradas de `00` a `10`.
+- Specs 01 e 02 trocadas de ordem: a estrutura da solution vem antes dos contratos, porque os contratos são implementados dentro dos projetos que ela cria.
+- Ciclo de vida da proposta no README: removido o estado `RECEBIDA`.
+- Spec 00: verificações manuais (`VM-NN`) e testes de arquitetura (`Category=Arquitetura`) passam a fazer parte da rastreabilidade de testes.
+- Instruções de testes do Copilot: regras para os testes de arquitetura.
+===== _context/memory.md =====
+# Memória do Projeto
+
+> Estado **atual** do projeto. Leia antes de começar qualquer spec e reescreva ao terminar (regras na spec 00, seção 4.8).
+
+**Última atualização:** 2026-11-21
+
+## Estado das specs
+
+| Spec | Título | Status |
+| --- | --- | --- |
+| 00 | Constituição e convenções | Implementada |
+| 01 | Estrutura da solution e empacotamento .NET | Implementada |
+| 02 | Contratos de eventos e modelo de dados | Rascunho |
+| 03 | Ambiente Docker e LocalStack | Rascunho |
+| 04 | Idempotência, resiliência e tratamento de falhas | Rascunho |
+| 05 | Observabilidade e proteção de dados | Rascunho |
+| 06 | Lambda motor-regras-score | Rascunho |
+| 07 | Lambda processador-proposta | Rascunho |
+| 08 | Lambda despachante-notificacao | Rascunho |
+| 09 | Lambda consulta-proposta | Rascunho |
+| 10 | Roteiro de teste ponta a ponta | Rascunho |
+
+## Próximo passo
+
+Implementar a spec 02 — contratos de eventos e modelo de dados.
+
+## Decisões vigentes
+
+- [ADR 0001](../docs/adr/0001-invocacao-sincrona-entre-lambdas.md) — invocação síncrona processador → motor
+- [ADR 0002](../docs/adr/0002-runtime-dotnet10-gerenciado-vs-native-aot.md) — runtime `dotnet10` gerenciado, `x86_64` por padrão
+- [ADR 0003](../docs/adr/0003-emulador-local-localstack.md) — LocalStack, condicionada à prova da spec 03
+- [ADR 0004](../docs/adr/0004-idempotencia-e-publicacao-no-kafka.md) — idempotência e publicação no Kafka
+
+## Ferramentas validadas
+
+- .NET SDK 10.0.404 e Amazon.Lambda.Tools 7.0.0.
+- AWS CLI 2.19.4, `awslocal` 0.23.0, Docker 28.0.4.
+- `dotnet build` sem erros nem warnings; `dotnet test` passa com 23 testes.
+
+## Armadilhas descobertas
+
+- O `awslocal` foi descontinuado em favor do `lstk aws`; ainda funciona.
+- A solution usa o formato `.slnx`, com pastas virtuais `src` e `tests`.
+
+## Pendências
+
+- Confirmar se o plano Hobby (não comercial) do LocalStack atende ao uso da POC.
+- Validar o ESM com Kafka no LocalStack (spec 03).
+- Decidir entre `awslocal` e `lstk` nos scripts (spec 03).
+
+===== _context/specs/00_especificacao-constituicao-e-convencoes.md =====
+# Spec 00 — Constituição e Convenções do Projeto
+
+- **Status:** Implementada
+- **Objetivo:** definir as regras que valem para todo o projeto: princípios, fluxo de trabalho com specs, convenções de código, stack permitida, modelo de spec e definição de pronto. Toda outra spec e todo código seguem este documento.
+- **Depende de:** [README](../../README.md), [ADR 0001](../../docs/adr/0001-invocacao-sincrona-entre-lambdas.md), [ADR 0002](../../docs/adr/0002-runtime-dotnet10-gerenciado-vs-native-aot.md), [ADR 0003](../../docs/adr/0003-emulador-local-localstack.md), [ADR 0004](../../docs/adr/0004-idempotencia-e-publicacao-no-kafka.md)
+
+---
+
+## 1. Regras de Negócio (RN)
+
+Nesta spec, as regras são **regras do projeto**: valem para todas as outras specs e não podem ser contrariadas sem alterar esta spec antes.
+
+- **RN-01 — A spec é a fonte da verdade.** Nenhum código é escrito sem uma spec com status `Aprovada`. Se o código precisar divergir da spec, a spec é corrigida primeiro e o código depois.
+- **RN-02 — Uma spec por vez.** As specs são implementadas na ordem numérica, cada uma em uma branch própria e em um PR próprio.
+- **RN-03 — Domínio puro.** O projeto `MotorCredito.Dominio` não referencia AWS SDK, MongoDB, Kafka nem qualquer biblioteca de I/O.
+- **RN-04 — Idempotência obrigatória.** Todo processamento de mensagem do Kafka é idempotente, seguindo a [ADR 0004](../../docs/adr/0004-idempotencia-e-publicacao-no-kafka.md).
+- **RN-05 — Clientes criados uma vez.** `MongoClient`, `IProducer` e `AmazonLambdaClient` são criados uma única vez por instância da Lambda, fora do handler, e reaproveitados entre invocações.
+- **RN-06 — Dados sensíveis protegidos.** O CPF nunca aparece completo em log, mensagem de erro ou resposta HTTP. A regra de mascaramento é definida na spec 05.
+- **RN-07 — Configuração por variável de ambiente.** Endpoints, nomes de tópicos, nomes de funções e credenciais vêm de variáveis de ambiente. Nada disso fica fixo no código. O arquivo `.env` nunca é commitado; o `.env.example` documenta todas as variáveis.
+- **RN-08 — Execução 100% local.** O projeto roda com `docker compose` na máquina do desenvolvedor. Não existe pipeline de CI/CD nem deploy em conta AWS.
+- **RN-09 — Rastreabilidade de testes.** Todo `RN`, `CA` e `EC` de uma spec é coberto por pelo menos um teste automatizado, e a seção **Testes** da spec indica qual teste cobre cada item. Quando o item depende de ferramenta externa ou do ambiente (scripts, Docker, LocalStack), ele pode ser coberto por uma **verificação manual**, descrita passo a passo na seção **Testes**, com o comando e o resultado esperado.
+- **RN-10 — Decisões arquiteturais viram ADR.** Uma decisão que muda a arquitetura gera uma nova ADR em `docs/adr/`. ADRs aceitas não são editadas; uma decisão nova substitui a antiga com o status `Substituída pela ADR NNNN`.
+
+---
+
+## 2. Comportamento Esperado
+
+Fluxo para implementar qualquer spec, seja por uma pessoa ou pelo Copilot.
+
+### Antes de começar
+
+1. Ler `_context/memory.md` para saber o estado atual do projeto.
+2. Ler a spec inteira e todos os arquivos listados em **Depende de**.
+3. Confirmar que todas as specs das quais ela depende estão com status `Implementada`.
+4. Criar a branch `spec/NN-descricao-curta` (exemplo: `spec/06-motor-regras-score`).
+
+### Durante a implementação
+
+1. Implementar **somente** o que a spec descreve. O que estiver em **Non-Goals** não é feito.
+2. Se faltar informação ou houver ambiguidade, **parar e perguntar**, em vez de inventar uma regra.
+3. Escrever os testes junto com o código, seguindo a seção **Testes** da spec.
+
+### Ao terminar (definição de pronto)
+
+A spec só está pronta quando **todos** os itens abaixo forem verdadeiros:
+
+- [ ] `dotnet build` termina sem erros e sem warnings.
+- [ ] `dotnet test` passa por completo.
+- [ ] Todo `CA` da spec foi verificado.
+- [ ] Todo `RN`, `CA` e `EC` tem pelo menos um teste citado na seção **Testes**.
+- [ ] O status da spec foi alterado para `Implementada`.
+- [ ] O `_context/memory.md` foi atualizado.
+- [ ] Uma entrada foi adicionada ao `_context/changelog.md`.
+- [ ] Se algum comando ou passo de execução mudou, o `README.md` foi atualizado.
+
+---
+
+## 3. Arquivos e Onde Alterar
+
+### Mapa do repositório
+
+| Caminho | O que contém |
+| --- | --- |
+| `_context/specs/` | Specs numeradas de `00` a `10` |
+| `_context/memory.md` | Estado atual do projeto (reescrito a cada spec) |
+| `_context/changelog.md` | Histórico de mudanças (só acrescenta) |
+| `docs/adr/` | Registros de decisão de arquitetura |
+| `.github/copilot-instructions.md` | Regras globais para o Copilot, apontando para esta spec |
+| `.github/instructions/` | Instruções do Copilot por tipo de arquivo |
+| `.github/prompts/` | Prompts reutilizáveis |
+| `src/MotorCredito.Dominio/` | Contratos, entidades, enums, regras puras e interfaces |
+| `src/MotorCredito.Infraestrutura/` | Implementações de MongoDB, Kafka e cliente Lambda |
+| `src/MotorCredito.Lambda.<Nome>/` | Uma pasta por Lambda, contendo só o handler e a composição das dependências |
+| `tests/MotorCredito.<Projeto>.Tests/` | Um projeto de teste por projeto de `src/` que tenha lógica |
+| `tests/MotorCredito.Arquitetura.Tests/` | Testes de arquitetura (regras de referência e pacotes proibidos) |
+| `infra/localstack/init/ready.d/` | Scripts de criação de recursos no LocalStack |
+| `scripts/` | Scripts de apoio (empacotamento, envio de eventos de teste) |
+
+### Regras de referência entre projetos
+
+```text
+MotorCredito.Dominio                    (não referencia nenhum projeto)
+MotorCredito.Infraestrutura          →  Dominio
+MotorCredito.Lambda.MotorRegrasScore →  Dominio            (nunca Infraestrutura)
+MotorCredito.Lambda.<demais>         →  Dominio, Infraestrutura
+MotorCredito.<Projeto>.Tests         →  o projeto testado
+MotorCredito.Arquitetura.Tests       →  nenhum projeto (lê os arquivos do repositório)
+```
+
+Uma Lambda **nunca** referencia outra Lambda.
+
+---
+
+## 4. Implementação Detalhada
+
+### 4.1 Stack e versões
+
+| Item | Valor |
+| --- | --- |
+| Target framework | `net10.0` |
+| SDK | 10.x, fixado no `global.json` da raiz |
+| Runtime da Lambda | `dotnet10`, arquitetura `x86_64` por padrão, configurável por `LAMBDA_ARCHITECTURE` ([ADR 0002](../../docs/adr/0002-runtime-dotnet10-gerenciado-vs-native-aot.md)) |
+| Linguagem | Versão padrão de C# do .NET 10 (não definir `LangVersion`) |
+
+Configurações obrigatórias em todos os `.csproj` (preferencialmente centralizadas em um `Directory.Build.props` na raiz):
+
+- `<Nullable>enable</Nullable>`
+- `<ImplicitUsings>enable</ImplicitUsings>`
+- `<TreatWarningsAsErrors>true</TreatWarningsAsErrors>`
+
+### 4.2 Bibliotecas
+
+**Permitidas** (outras só com alteração desta spec):
+
+| Uso | Pacote |
+| --- | --- |
+| Lambda | `Amazon.Lambda.Core`, `Amazon.Lambda.Serialization.SystemTextJson`, `Amazon.Lambda.KafkaEvents`, `Amazon.Lambda.APIGatewayEvents` |
+| Invocação entre Lambdas | `AWSSDK.Lambda` |
+| Kafka (producer) | `Confluent.Kafka` |
+| MongoDB | `MongoDB.Driver` |
+| Testes | `xunit`, `xunit.runner.visualstudio`, `Microsoft.NET.Test.Sdk`, `NSubstitute`, `Shouldly`, `coverlet.collector` |
+| Testes de integração | `Testcontainers.MongoDb`, `Testcontainers.Kafka` |
+
+**Proibidas:**
+
+| Pacote | Motivo |
+| --- | --- |
+| `FluentAssertions` (v8 ou superior) | Licença comercial paga. Usar `Shouldly`. |
+| `Moq` | Padronização: o projeto usa `NSubstitute`. |
+| `Newtonsoft.Json` | O projeto usa `System.Text.Json`. |
+| `Amazon.Lambda.Annotations` | Nesta POC o handler é escrito de forma explícita, para fins de estudo. |
+
+### 4.3 Nomenclatura
+
+- **Termos do domínio em português**, seguindo a linguagem do negócio: `Proposta`, `AvaliacaoScore`, `FaixaRisco`, `LimiteAprovado`.
+- **Sufixos técnicos do .NET em inglês**, como é padrão na plataforma: `Request`, `Response`, `Client`, `Repository`, `Options`, `Exception`, `Async`, `Tests`.
+  - Exemplos: `AvaliacaoScoreRequest`, `IMotorScoreClient`, `IPropostaRepository`, `PropostaNaoEncontradaException`.
+- Classes, métodos e propriedades em `PascalCase`; parâmetros e variáveis locais em `camelCase`; campos privados em `_camelCase`.
+- Métodos com I/O são assíncronos e terminam em `Async`.
+- **JSON** (eventos Kafka, respostas HTTP) e **campos do MongoDB** em `camelCase` português: `idProposta`, `valorSolicitado`.
+- **Valores de enum** serializados como texto em `MAIUSCULO_COM_UNDERSCORE`: `EM_PROCESSAMENTO`, `APROVADA`, `BAIXO`.
+- **Variáveis de ambiente** em `MAIUSCULO_COM_UNDERSCORE`: `MONGODB_URI`, `KAFKA_BOOTSTRAP_SERVERS`.
+
+### 4.4 Padrões de código
+
+- **Handler das Lambdas:** a classe `Function` tem dois construtores:
+  - um **sem parâmetros**, usado pelo runtime da Lambda, que monta as dependências reais;
+  - um que **recebe as dependências por parâmetro**, usado pelos testes.
+- **Sem container de injeção de dependência.** A composição é manual, no construtor sem parâmetros.
+- **Serialização:** `System.Text.Json` com `JsonSerializerContext` (*source generator*) sempre que possível ([ADR 0002](../../docs/adr/0002-runtime-dotnet10-gerenciado-vs-native-aot.md)).
+- **Valores monetários:** sempre `decimal`, nunca `double` ou `float`. No MongoDB, armazenados como `Decimal128`.
+- **Datas:** sempre em UTC, obtidas por um `TimeProvider` injetado. Nunca usar `DateTime.Now` ou `DateTime.UtcNow` diretamente, para que os testes controlem o tempo. No JSON, formato ISO 8601.
+- **Erros:** exceções de domínio específicas (herdando de uma base comum do projeto). Nenhuma exceção é engolida em silêncio; toda exceção capturada é registrada em log.
+- **Logs:** estruturados, sem dados sensíveis (detalhes na spec 05).
+
+### 4.5 Convenções de testes
+
+- Padrão **Arrange / Act / Assert**, com as três partes separadas por uma linha em branco.
+- Nome do teste: `Deve_<resultado>_Quando_<condicao>`. Exemplo: `Deve_retornar_404_Quando_proposta_nao_existe`.
+- Testes de integração marcados com `[Trait("Category", "Integracao")]`, para o filtro do README funcionar.
+- Testes de arquitetura marcados com `[Trait("Category", "Arquitetura")]`. Eles verificam as regras de referência entre projetos e a lista de pacotes proibidos lendo os arquivos `.slnx`, `.csproj` e `.props` do repositório, e são os únicos testes automatizados que podem ler arquivos do repositório.
+- Um teste verifica um comportamento. Casos com a mesma lógica e dados diferentes usam `[Theory]` com `[InlineData]`.
+
+### 4.6 Git
+
+- **Branch:** `spec/NN-descricao-curta`.
+- **Commits:** padrão [Conventional Commits](https://www.conventionalcommits.org/), em português e com uma linha. Tipos usados: `feat`, `fix`, `test`, `docs`, `refactor`, `chore`.
+  - Exemplo: `feat: implementa cálculo de score no motor de regras`.
+- **PR:** um por spec, com o título `Spec NN — <título da spec>` e a checklist da definição de pronto (seção 2) na descrição.
+
+### 4.7 Modelo de spec
+
+Toda spec de `01` a `10` segue este modelo, com estes títulos e nesta ordem. Uma seção que não se aplica continua presente, com o texto "Não se aplica".
+
+```markdown
+# Spec NN — <Título>
+
+- **Status:** Rascunho | Aprovada | Implementada
+- **Objetivo:** <uma ou duas frases>
+- **Depende de:** <specs e ADRs, com link>
+
+## 1. Regras de Negócio (RN)
+- **RN-01 — <nome curto>.** <descrição>
+
+## 2. Comportamento Esperado
+<o que acontece, passo a passo, do ponto de vista de quem usa>
+
+## 3. Arquivos e Onde Alterar
+| Arquivo | Ação (criar / alterar) | O que muda |
+
+## 4. Implementação Detalhada
+<contratos, assinaturas, nomes de classes e sequência de passos; sem o corpo dos métodos>
+
+## 5. Testes
+| Teste | Tipo (unitário / integração / arquitetura / manual) | Cobre |
+| `Deve_..._Quando_...` | unitário | RN-01, CA-02 |
+
+## 6. Critérios de Aceitação (CA)
+- **CA-01** — <condição verificável>
+
+## 7. Non-Goals
+- <o que esta spec não faz>
+
+## 8. Edge Cases
+- **EC-01 — <situação>.** <comportamento esperado>
+```
+
+Regras do modelo:
+
+- Os identificadores (`RN-01`, `CA-01`, `EC-01`) recomeçam em cada spec e nunca são renumerados depois que a spec é aprovada. Item removido fica riscado, com o motivo.
+- A seção **4. Implementação Detalhada** descreve o *quê* e o *onde*, não o código pronto.
+- Verificações manuais recebem identificadores próprios (`VM-01`, `VM-02`...) e aparecem na tabela da seção **5. Testes** com o tipo `manual`.
+
+### 4.8 `memory.md` e `changelog.md`
+
+| | `_context/memory.md` | `_context/changelog.md` |
+| --- | --- | --- |
+| **Função** | Estado **atual** do projeto, lido antes de cada spec | **Histórico** do que mudou |
+| **Atualização** | Reescrito ao fim de cada spec | Nova entrada adicionada **no topo** |
+| **Tamanho** | Curto (até cerca de 60 linhas) | Cresce com o projeto |
+| **Seções** | Estado das specs, próximo passo, decisões vigentes, ferramentas validadas, armadilhas descobertas, pendências | Entradas por data, agrupadas em Adicionado / Alterado / Corrigido / Removido |
+
+O `memory.md` não repete o changelog nem as ADRs: ele aponta para eles.
+
+---
+
+## 5. Testes
+
+Esta spec não gera código próprio, então não tem testes automatizados. Ela é verificada em toda revisão de PR, com as perguntas abaixo:
+
+| Verificação | Cobre |
+| --- | --- |
+| O PR implementa uma única spec, numa branch `spec/NN-...`? | RN-02, CA-05 |
+| `dotnet list package` não mostra nenhum pacote proibido? | CA-04 |
+| O projeto `MotorCredito.Dominio` não tem referência de pacote de I/O? | RN-03 |
+| A spec implementada tem a tabela de testes cobrindo todos os RN, CA e EC? | RN-09 |
+| `memory.md` e `changelog.md` foram atualizados? | CA-03 |
+
+---
+
+## 6. Critérios de Aceitação (CA)
+
+- **CA-01** — As specs `01` a `10` seguem o modelo da seção 4.7, com os 8 títulos na ordem definida.
+- **CA-02** — O `.github/copilot-instructions.md` aponta para esta spec e para o `_context/memory.md`.
+- **CA-03** — `_context/memory.md` e `_context/changelog.md` existem e seguem a seção 4.8.
+- **CA-04** — Nenhum `.csproj` referencia um pacote da lista de proibidos.
+- **CA-05** — Cada spec é entregue em um PR próprio, com a checklist da definição de pronto preenchida.
+
+---
+
+## 7. Non-Goals
+
+- Não define regras de crédito (score, faixas, limites): spec 06.
+- Não cria a solution nem os projetos .NET: spec 01.
+- Não define contratos de eventos nem modelo de dados: spec 02.
+- Não define a regra de mascaramento do CPF nem o formato dos logs: spec 05.
+- Não trata de CI/CD, deploy em AWS, Native AOT nem autenticação na Function URL (ver seção 13 do README).
+
+---
+
+## 8. Edge Cases
+
+- **EC-01 — Spec ambígua ou incompleta.** Quem implementa para e pergunta. A resposta é incorporada à spec antes de continuar o código.
+- **EC-02 — Código precisa divergir da spec.** A spec é alterada primeiro, no mesmo PR, com a mudança explicada na descrição (RN-01).
+- **EC-03 — Necessidade de uma biblioteca fora da lista.** A seção 4.2 desta spec é atualizada antes de adicionar o pacote.
+- **EC-04 — Spec depende de outra ainda não implementada.** A implementação não começa até a dependência estar `Implementada`.
+- **EC-05 — Uma decisão de arquitetura muda.** Cria-se uma nova ADR que substitui a anterior; a ADR antiga só tem o status alterado (RN-10).
+- **EC-06 — Conflito entre esta spec e outra.** Esta spec prevalece, e a outra é corrigida.
+===== _context/specs/01_especificacao-estrutura-da-solution-e-empacotamento-dotnet.md =====
+# Spec 01 — Estrutura da Solution e Empacotamento .NET
+
+- **Status:** Implementada
+- **Objetivo:** criar a solution, os projetos .NET e as configurações compartilhadas, deixar as quatro Lambdas compilando com um handler esqueleto e gerar um pacote `.zip` por Lambda com um único script. As regras de arquitetura da spec 00 passam a ser verificadas por testes automatizados.
+- **Depende de:** [Spec 00](./00_especificacao-constituicao-e-convencoes.md), [ADR 0002](../../docs/adr/0002-runtime-dotnet10-gerenciado-vs-native-aot.md)
+
+---
+
+## 1. Regras de Negócio (RN)
+
+- **RN-01 — Solution única.** Existe uma única solution, `MotorAnaliseCredito.slnx`, na raiz do repositório, contendo todos os projetos de `src/` e `tests/`.
+- **RN-02 — SDK fixado.** Um `global.json` na raiz fixa o SDK do .NET 10. Uma máquina com outros SDKs instalados (como o .NET 11) usa o SDK 10 dentro do repositório.
+- **RN-03 — Propriedades comuns centralizadas.** `TargetFramework`, `Nullable`, `ImplicitUsings` e `TreatWarningsAsErrors` são definidos uma única vez, no `Directory.Build.props` da raiz. Nenhum `.csproj` redefine essas propriedades.
+- **RN-04 — Versões de pacotes centralizadas.** As versões de todos os pacotes NuGet ficam no `Directory.Packages.props` da raiz (*Central Package Management*). Nenhum `.csproj` informa versão em `PackageReference`.
+- **RN-05 — Projetos e referências.** Os projetos e as referências entre eles seguem exatamente a seção 3 da spec 00.
+- **RN-06 — Lambdas com handler esqueleto.** Cada projeto de Lambda é uma biblioteca de classes com as propriedades de Lambda e uma classe `Function` com um handler esqueleto, que só devolve um texto identificando a função. Os handlers reais são criados nas specs 06 a 09.
+- **RN-07 — Empacotamento por script único.** O script `scripts/empacotar-lambdas.sh` gera um `.zip` por Lambda em `dist/`, com o nome da função (`dist/motor-regras-score.zip`, por exemplo).
+- **RN-08 — Arquitetura configurável.** A arquitetura dos pacotes vem da variável `LAMBDA_ARCHITECTURE` (`x86_64` ou `arm64`), com `x86_64` como padrão. A variável é documentada no `.env.example`.
+- **RN-09 — Regras de arquitetura testadas.** As regras de referência entre projetos e a lista de pacotes proibidos da spec 00 são verificadas por testes automatizados no projeto `MotorCredito.Arquitetura.Tests`.
+
+---
+
+## 2. Comportamento Esperado
+
+Do ponto de vista de quem clona o repositório:
+
+1. Na raiz, `dotnet --version` mostra uma versão `10.0.x`, mesmo que a máquina tenha outros SDKs.
+2. `dotnet build` compila os 11 projetos sem erros e sem warnings.
+3. `dotnet test` executa os testes dos quatro projetos de Lambda e os testes de arquitetura, e todos passam.
+4. `./scripts/empacotar-lambdas.sh`:
+   1. carrega o `.env`, se existir;
+   2. valida `LAMBDA_ARCHITECTURE` (usa `x86_64` se ausente);
+   3. confere se o `dotnet` e o Amazon.Lambda.Tools estão instalados;
+   4. cria a pasta `dist/`, se não existir;
+   5. empacota as quatro Lambdas, uma por vez, mostrando o nome de cada uma;
+   6. termina mostrando a lista dos `.zip` gerados.
+5. Se qualquer etapa do script falhar, ele para na hora, mostra uma mensagem clara e termina com código de saída diferente de zero.
+
+---
+
+## 3. Arquivos e Onde Alterar
+
+| Arquivo | Ação | O que muda |
+| --- | --- | --- |
+| `global.json` | criar | Fixa o SDK 10 |
+| `Directory.Build.props` | criar | Propriedades comuns a todos os projetos |
+| `Directory.Packages.props` | criar | Versões centralizadas dos pacotes |
+| `MotorAnaliseCredito.slnx` | criar | Solution com os 11 projetos, separados nas pastas de solution `src` e `tests` |
+| `.env.example` | criar | Documenta `LAMBDA_ARCHITECTURE` |
+| `src/MotorCredito.Dominio/MotorCredito.Dominio.csproj` | criar | Biblioteca vazia, sem referências |
+| `src/MotorCredito.Infraestrutura/MotorCredito.Infraestrutura.csproj` | criar | Biblioteca vazia, referencia `Dominio` |
+| `src/MotorCredito.Lambda.MotorRegrasScore/` | criar | `.csproj`, `Function.cs`, `aws-lambda-tools-defaults.json` |
+| `src/MotorCredito.Lambda.ProcessadorProposta/` | criar | `.csproj`, `Function.cs`, `aws-lambda-tools-defaults.json` |
+| `src/MotorCredito.Lambda.DespachanteNotificacao/` | criar | `.csproj`, `Function.cs`, `aws-lambda-tools-defaults.json` |
+| `src/MotorCredito.Lambda.ConsultaProposta/` | criar | `.csproj`, `Function.cs`, `aws-lambda-tools-defaults.json` |
+| `tests/MotorCredito.Lambda.MotorRegrasScore.Tests/` | criar | Projeto de teste + `FunctionTests.cs` |
+| `tests/MotorCredito.Lambda.ProcessadorProposta.Tests/` | criar | Projeto de teste + `FunctionTests.cs` |
+| `tests/MotorCredito.Lambda.DespachanteNotificacao.Tests/` | criar | Projeto de teste + `FunctionTests.cs` |
+| `tests/MotorCredito.Lambda.ConsultaProposta.Tests/` | criar | Projeto de teste + `FunctionTests.cs` |
+| `tests/MotorCredito.Arquitetura.Tests/` | criar | Projeto de teste + testes de arquitetura |
+| `scripts/empacotar-lambdas.sh` | criar | Script de empacotamento, com permissão de execução |
+| `README.md` | alterar | Seção 10: nova linha na tabela para os testes de arquitetura |
+
+Os projetos `MotorCredito.Dominio.Tests` e `MotorCredito.Infraestrutura.Tests` **não** são criados nesta spec: eles nascem nas specs que adicionarem lógica a esses projetos.
+
+---
+
+## 4. Implementação Detalhada
+
+### 4.1 `global.json`
+
+```json
+{
+  "sdk": {
+    "version": "10.0.100",
+    "rollForward": "latestFeature",
+    "allowPrerelease": false
+  }
+}
+```
+
+Com `latestFeature`, o .NET usa o SDK 10.0.x mais recente instalado e nunca passa para o 11.
+
+### 4.2 `Directory.Build.props`
+
+Define, para todos os projetos:
+
+| Propriedade | Valor |
+| --- | --- |
+| `TargetFramework` | `net10.0` |
+| `Nullable` | `enable` |
+| `ImplicitUsings` | `enable` |
+| `TreatWarningsAsErrors` | `true` |
+
+### 4.3 `Directory.Packages.props`
+
+- `ManagePackageVersionsCentrally` = `true`.
+- Um `PackageVersion` para cada pacote usado nesta spec, com a **versão estável mais recente** disponível no NuGet no momento da implementação:
+
+| Pacote | Usado por |
+| --- | --- |
+| `Amazon.Lambda.Core` | Projetos de Lambda |
+| `Amazon.Lambda.Serialization.SystemTextJson` | Projetos de Lambda |
+| `xunit` (v2, não o `xunit.v3`) | Projetos de teste |
+| `xunit.runner.visualstudio` | Projetos de teste |
+| `Microsoft.NET.Test.Sdk` | Projetos de teste |
+| `NSubstitute` | Projetos de teste |
+| `Shouldly` | Projetos de teste |
+| `coverlet.collector` | Projetos de teste |
+
+Os demais pacotes permitidos pela spec 00 entram nas specs que precisarem deles.
+
+### 4.4 Projetos de Lambda
+
+Cada projeto `MotorCredito.Lambda.<Nome>`:
+
+- É uma biblioteca de classes (sem `OutputType` de executável).
+- Tem no `.csproj`, além das referências:
+  - `AWSProjectType` = `Lambda`
+  - `GenerateRuntimeConfigurationFiles` = `true`
+  - `CopyLocalLockFileAssemblies` = `true`
+- Referencia os pacotes `Amazon.Lambda.Core` e `Amazon.Lambda.Serialization.SystemTextJson`.
+- Referencia os projetos conforme a seção 3 da spec 00:
+  - `MotorRegrasScore` → só `Dominio`;
+  - as outras três → `Dominio` e `Infraestrutura`.
+- Tem uma classe `sealed` `Function`, no namespace igual ao nome do projeto, com:
+  - um construtor sem parâmetros;
+  - o método `public string FunctionHandler(string entrada, ILambdaContext contexto)`, que devolve o texto `"<nome-da-funcao>: esqueleto"` (por exemplo, `"motor-regras-score: esqueleto"`).
+- Registra o serializador com o atributo de assembly `LambdaSerializer`, usando o `DefaultLambdaJsonSerializer`. A troca para o serializador com *source generator* acontece nas specs 06 a 09, quando existirem os tipos reais de entrada e saída.
+- Tem um `aws-lambda-tools-defaults.json` com `function-runtime` = `dotnet10`, `framework` = `net10.0`, `configuration` = `Release` e o `function-handler` da tabela abaixo.
+
+| Função | Projeto | Handler |
+| --- | --- | --- |
+| `motor-regras-score` | `MotorCredito.Lambda.MotorRegrasScore` | `MotorCredito.Lambda.MotorRegrasScore::MotorCredito.Lambda.MotorRegrasScore.Function::FunctionHandler` |
+| `processador-proposta` | `MotorCredito.Lambda.ProcessadorProposta` | `MotorCredito.Lambda.ProcessadorProposta::MotorCredito.Lambda.ProcessadorProposta.Function::FunctionHandler` |
+| `despachante-notificacao` | `MotorCredito.Lambda.DespachanteNotificacao` | `MotorCredito.Lambda.DespachanteNotificacao::MotorCredito.Lambda.DespachanteNotificacao.Function::FunctionHandler` |
+| `consulta-proposta` | `MotorCredito.Lambda.ConsultaProposta` | `MotorCredito.Lambda.ConsultaProposta::MotorCredito.Lambda.ConsultaProposta.Function::FunctionHandler` |
+
+Os nomes de função e os handlers desta tabela são usados pela spec 03 para criar as Lambdas no LocalStack.
+
+### 4.5 Projetos de teste das Lambdas
+
+Cada `MotorCredito.Lambda.<Nome>.Tests`:
+
+- Referencia o projeto da Lambda correspondente e os pacotes de teste da seção 4.3.
+- Tem `IsTestProject` = `true`.
+- Tem um arquivo `FunctionTests.cs` com o teste do handler esqueleto (seção 5). O `ILambdaContext` é um mock do NSubstitute.
+
+### 4.6 Projeto `MotorCredito.Arquitetura.Tests`
+
+- Não referencia nenhum projeto da solution. Referencia só os pacotes de teste.
+- Todas as classes de teste têm `[Trait("Category", "Arquitetura")]`.
+- Localiza a raiz do repositório subindo a partir de `AppContext.BaseDirectory` até achar o `MotorAnaliseCredito.slnx`. Se não achar, o teste falha com uma mensagem clara.
+- Lê o `.slnx`, os `.csproj` e o `Directory.Packages.props` como XML (`System.Xml.Linq`).
+- A lista de pacotes proibidos fica em **um único lugar** no projeto (uma classe estática), com os quatro pacotes da seção 4.2 da spec 00.
+- Organização sugerida:
+
+| Classe | Responsabilidade |
+| --- | --- |
+| `Repositorio` | Localizar a raiz e listar/carregar os arquivos de projeto |
+| `PacotesProibidos` | Lista de pacotes proibidos |
+| `SolutionTests` | Testes sobre o `.slnx` |
+| `ReferenciasEntreProjetosTests` | Testes das regras de referência |
+| `PacotesTests` | Testes de pacotes e versões |
+| `PropriedadesComunsTests` | Testes de propriedades redefinidas nos `.csproj` |
+| `LambdasTests` | Testes sobre os projetos de Lambda e o `aws-lambda-tools-defaults.json` |
+
+### 4.7 `.env.example`
+
+Contém só a variável desta spec, com um comentário explicando os valores aceitos:
+
+```text
+# Arquitetura dos pacotes das Lambdas: x86_64 (padrão) ou arm64
+LAMBDA_ARCHITECTURE=x86_64
+```
+
+As demais variáveis entram na spec 03.
+
+### 4.8 `scripts/empacotar-lambdas.sh`
+
+- Começa com `#!/usr/bin/env bash` e `set -euo pipefail`.
+- Funciona de qualquer pasta: calcula a raiz do repositório a partir da localização do próprio script.
+- É compatível com o bash 3.2, que é o padrão do macOS: **não usa arrays associativos**.
+- Carrega o `.env` da raiz, se existir, exportando as variáveis.
+- Usa `LAMBDA_ARCHITECTURE`, com `x86_64` como padrão. Qualquer valor diferente de `x86_64` ou `arm64` faz o script parar com uma mensagem de erro.
+- Confere se o `dotnet` e o `dotnet lambda` estão disponíveis. Se faltar um deles, para e mostra como instalar (`dotnet tool install -g Amazon.Lambda.Tools`).
+- Define a lista de Lambdas **em um único lugar** do script, como pares `nome-da-funcao:pasta-do-projeto`.
+- Para cada Lambda, executa `dotnet lambda package` com:
+  - `--project-location` apontando para a pasta do projeto;
+  - `--configuration Release`;
+  - `--framework net10.0`;
+  - `--function-architecture` com o valor de `LAMBDA_ARCHITECTURE`;
+  - `--output-package dist/<nome-da-funcao>.zip`.
+- Sobrescreve pacotes antigos com o mesmo nome.
+- Ao final, lista os arquivos de `dist/`.
+- O arquivo é salvo com permissão de execução (`chmod +x`).
+
+### 4.9 README
+
+Na tabela da seção 10, adicionar a linha:
+
+| Camada | Escopo | Comando |
+| --- | --- | --- |
+| **Arquitetura** | Regras de referência entre projetos e pacotes proibidos | `dotnet test --filter "Category=Arquitetura"` |
+
+---
+
+## 5. Testes
+
+### Testes automatizados
+
+| Teste | Projeto | Tipo | Cobre |
+| --- | --- | --- | --- |
+| `Deve_conter_todos_os_projetos_de_src_e_tests_Quando_solution_e_lida` | Arquitetura | arquitetura | RN-01, RN-05, CA-04 |
+| `Deve_nao_referenciar_nenhum_projeto_nem_pacote_Quando_projeto_e_Dominio` | Arquitetura | arquitetura | RN-05 |
+| `Deve_referenciar_apenas_Dominio_Quando_projeto_e_Infraestrutura` | Arquitetura | arquitetura | RN-05 |
+| `Deve_referenciar_apenas_Dominio_Quando_projeto_e_MotorRegrasScore` | Arquitetura | arquitetura | RN-05 |
+| `Deve_nao_referenciar_outra_Lambda_Quando_projeto_e_Lambda` | Arquitetura | arquitetura | RN-05 |
+| `Deve_nao_usar_pacote_proibido_Quando_qualquer_projeto_ou_props_e_lido` | Arquitetura | arquitetura | RN-09 |
+| `Deve_nao_informar_versao_Quando_csproj_referencia_pacote` | Arquitetura | arquitetura | RN-04 |
+| `Deve_ter_versao_central_Quando_pacote_e_referenciado` | Arquitetura | arquitetura | RN-04 |
+| `Deve_nao_redefinir_propriedades_comuns_Quando_csproj_e_lido` | Arquitetura | arquitetura | RN-03 |
+| `Deve_ter_propriedades_de_Lambda_Quando_projeto_e_Lambda` | Arquitetura | arquitetura | RN-06 |
+| `Deve_ter_runtime_dotnet10_e_handler_esperado_Quando_defaults_da_Lambda_e_lido` | Arquitetura | arquitetura | RN-06 |
+| `Deve_retornar_identificacao_Quando_handler_esqueleto_e_invocado` | Cada um dos 4 projetos de teste de Lambda | unitário | RN-06, CA-02 |
+
+O teste `Deve_nao_referenciar_outra_Lambda_Quando_projeto_e_Lambda` e o `Deve_ter_propriedades_de_Lambda_Quando_projeto_e_Lambda` usam `[Theory]`, com um caso por projeto de Lambda.
+
+### Verificações manuais
+
+| ID | Comando | Resultado esperado | Cobre |
+| --- | --- | --- | --- |
+| VM-01 | `dotnet --version` na raiz | Versão `10.0.x` | RN-02, CA-03, EC-01 |
+| VM-02 | `dotnet build` na raiz | `0 Warning(s)` e `0 Error(s)` | CA-01 |
+| VM-03 | `dotnet test` na raiz | Todos os testes passam | CA-02 |
+| VM-04 | `rm -rf dist && ./scripts/empacotar-lambdas.sh` sem `.env` | 4 arquivos `.zip` em `dist/`, um por função | RN-07, CA-05, EC-02, EC-04, EC-08 |
+| VM-05 | `unzip -l dist/motor-regras-score.zip` | Lista `MotorCredito.Lambda.MotorRegrasScore.dll` e `MotorCredito.Lambda.MotorRegrasScore.runtimeconfig.json` | CA-06 |
+| VM-06 | `LAMBDA_ARCHITECTURE=arm64 ./scripts/empacotar-lambdas.sh` | Termina sem erro e gera os 4 pacotes | RN-08, CA-07 |
+| VM-07 | `LAMBDA_ARCHITECTURE=xyz ./scripts/empacotar-lambdas.sh; echo $?` | Mensagem de arquitetura inválida e código diferente de `0` | CA-08, EC-03 |
+| VM-08 | Rodar o script duas vezes seguidas | A segunda execução termina sem erro e sobrescreve os pacotes | EC-05 |
+| VM-09 | `cd scripts && ./empacotar-lambdas.sh` | Mesmo resultado da VM-04 | EC-06 |
+| VM-10 | `PATH=/usr/bin:/bin ./scripts/empacotar-lambdas.sh; echo $?` | Mensagem dizendo que o `dotnet` não foi encontrado e código diferente de `0` | EC-07 |
+| VM-11 | `cat .env.example` | Mostra `LAMBDA_ARCHITECTURE` com o comentário | RN-08 |
+| VM-12 | Seção 10 do README | Tem a linha **Arquitetura** | CA-09 |
+
+---
+
+## 6. Critérios de Aceitação (CA)
+
+- **CA-01** — `dotnet build` na raiz termina sem erros e sem warnings.
+- **CA-02** — `dotnet test` na raiz passa, executando os testes dos 4 projetos de Lambda e do projeto de arquitetura.
+- **CA-03** — `dotnet --version` na raiz mostra `10.0.x`.
+- **CA-04** — A solution contém exatamente estes 11 projetos: os 6 de `src/` e os 5 de `tests/` listados na seção 3.
+- **CA-05** — O script gera `dist/motor-regras-score.zip`, `dist/processador-proposta.zip`, `dist/despachante-notificacao.zip` e `dist/consulta-proposta.zip`.
+- **CA-06** — Cada `.zip` contém a DLL e o `runtimeconfig.json` do projeto da Lambda.
+- **CA-07** — Com `LAMBDA_ARCHITECTURE=arm64`, o script gera os pacotes sem erro.
+- **CA-08** — Com um valor inválido em `LAMBDA_ARCHITECTURE`, o script para com mensagem de erro e código de saída diferente de zero.
+- **CA-09** — A seção 10 do README tem a linha dos testes de arquitetura.
+
+---
+
+## 7. Non-Goals
+
+- Não cria contratos, entidades, enums nem interfaces do domínio: spec 02.
+- Não cria `docker-compose.yml`, scripts do LocalStack nem as demais variáveis do `.env.example`: spec 03.
+- Não implementa os handlers reais nem troca o serializador pelo de *source generator*: specs 06 a 09.
+- Não adiciona os pacotes `AWSSDK.Lambda`, `Confluent.Kafka`, `MongoDB.Driver`, `Amazon.Lambda.KafkaEvents`, `Amazon.Lambda.APIGatewayEvents` nem `Testcontainers.*`: entram nas specs que os usarem.
+- Não cria `MotorCredito.Dominio.Tests` nem `MotorCredito.Infraestrutura.Tests`.
+- Não aplica o padrão de dois construtores da spec 00 (seção 4.4): o handler esqueleto não tem dependências. O padrão passa a valer quando a Lambda tiver dependências.
+- Não cria `.editorconfig`, analisadores extras nem configuração de cobertura mínima.
+
+---
+
+## 8. Edge Cases
+
+- **EC-01 — Máquina com SDK 11 (ou outro) instalado.** O `global.json` faz o repositório usar o SDK 10.0.x mais recente instalado.
+- **EC-02 — `LAMBDA_ARCHITECTURE` ausente.** O script usa `x86_64`.
+- **EC-03 — `LAMBDA_ARCHITECTURE` com valor inválido.** O script para antes de empacotar, mostra os valores aceitos e termina com código diferente de zero.
+- **EC-04 — Pasta `dist/` inexistente.** O script cria a pasta.
+- **EC-05 — Script executado mais de uma vez.** Os pacotes são sobrescritos, sem erro.
+- **EC-06 — Script executado de outra pasta.** O script funciona igual, porque resolve a raiz a partir da própria localização.
+- **EC-07 — `dotnet` ou Amazon.Lambda.Tools ausente.** O script para e mostra como instalar o que falta.
+- **EC-08 — `.env` ausente.** O script segue com os valores padrão.
+
+===== _context/specs/02_especificacao-contratos-de-eventos-e-modelo-de-dados.md =====
+
+===== _context/specs/03_especificacao-ambiente-docker-e-localstack.md =====
+
+===== _context/specs/04_especificacao-idempotencia-resiliencia-e-tratamento-de-falhas.md =====
+
+===== _context/specs/05_especificacao-observabilidade-e-protecao-de-dados.md =====
+
+===== _context/specs/06_especificacao-lambda-motor-regras-score.md =====
+
+===== _context/specs/07_especificacao-lambda-processador-proposta.md =====
+
+===== _context/specs/08_especificacao-lambda-despachante-notificacao.md =====
+
+===== _context/specs/09_especificacao-lambda-consulta-proposta.md =====
+
+===== _context/specs/10_especificacao-roteiro-de-teste-ponta-a-ponta.md =====
+
+===== .env.example =====
+# Arquitetura dos pacotes das Lambdas: x86_64 (padrão) ou arm64
+LAMBDA_ARCHITECTURE=x86_64
+
+===== .github/copilot-instructions.md =====
+# Instruções do Copilot para este repositório
+
+Este repositório é uma POC de esteira de análise de crédito **serverless e orientada a eventos**: quatro AWS Lambdas em **C# (.NET 10)**, emuladas no **LocalStack**, que consomem e publicam eventos no **Apache Kafka** e persistem no **MongoDB**. Tudo roda localmente com `docker compose`.
+
+O desenvolvimento é **orientado a especificações**: as specs em `_context/specs/` são a fonte da verdade.
+
+## Antes de qualquer tarefa
+
+Leia, nesta ordem:
+
+1. `_context/memory.md`: estado atual do projeto, próximo passo e pendências.
+2. `_context/specs/00_especificacao-constituicao-e-convencoes.md`: regras, convenções e modelo de spec. **Esta spec prevalece sobre qualquer outra instrução.**
+3. A spec da tarefa e todos os arquivos listados em **Depende de** no cabeçalho dela.
+
+## Regras que você deve seguir sempre
+
+- Implemente **somente** o que a spec descreve. O que estiver em **Non-Goals** não é feito.
+- Se a spec estiver ambígua, incompleta ou contradizer outra, **pare e pergunte**. Não invente regras de negócio, nomes de campos ou valores.
+- Não comece uma spec se alguma spec da qual ela depende não estiver com status `Implementada`.
+- Use apenas as bibliotecas permitidas na seção 4.2 da spec 00. Nunca use `FluentAssertions`, `Moq`, `Newtonsoft.Json` ou `Amazon.Lambda.Annotations`.
+- O projeto `MotorCredito.Dominio` não pode referenciar AWS SDK, MongoDB, Kafka ou qualquer biblioteca de I/O.
+- Nunca escreva o CPF completo em logs, mensagens de erro ou respostas HTTP.
+- Nunca coloque endpoints, nomes de tópicos, nomes de funções ou credenciais fixos no código: use variáveis de ambiente e documente cada uma no `.env.example`.
+- Nunca crie, altere ou leia o arquivo `.env`.
+- Escreva os testes junto com o código e cite na seção **Testes** da spec qual teste cobre cada `RN`, `CA` e `EC`.
+- Siga as convenções de nomenclatura da seção 4.3 da spec 00: termos do domínio em português, sufixos técnicos do .NET em inglês (`AvaliacaoScoreRequest`, `IPropostaRepository`).
+
+## Ao terminar uma spec
+
+Confira a **definição de pronto** da seção 2 da spec 00. Em especial:
+
+1. `dotnet build` sem erros e sem warnings, e `dotnet test` passando.
+2. Status da spec alterado para `Implementada`.
+3. `_context/memory.md` **reescrito** com o novo estado (não acrescente histórico nele).
+4. Nova entrada **no topo** do `_context/changelog.md`.
+5. `README.md` atualizado, se algum comando ou passo de execução mudou.
+
+## Decisões de arquitetura
+
+As decisões vigentes estão em `docs/adr/`. Não contrarie uma ADR. Se uma tarefa exigir mudar uma decisão, pare e proponha uma nova ADR em vez de alterar o código.
+
+## Idioma
+
+Responda, escreva comentários, mensagens de commit e documentação em **português do Brasil**. Mensagens de commit seguem o padrão Conventional Commits, com uma linha (seção 4.6 da spec 00).
+
+## Instruções complementares
+
+- `.github/instructions/csharp-lambda.instructions.md`: regras para os arquivos C# das Lambdas.
+- `.github/instructions/testes.instructions.md`: regras para os projetos de teste.
+- `.github/prompts/implementar-especificacao.prompt.md`: prompt para implementar uma spec.
+===== .github/instructions/csharp-lambda.instructions.md =====
+---
+applyTo: "src/**/*.cs"
+description: Regras para o código C# das Lambdas, do domínio e da infraestrutura.
+---
+
+# Regras para o código C# em `src/`
+
+Estas regras complementam a [spec 00](../../_context/specs/00_especificacao-constituicao-e-convencoes.md). Em caso de conflito, a spec 00 prevalece.
+
+## Estilo
+
+- Use *file-scoped namespace* (`namespace MotorCredito.Dominio;`).
+- Classes são `sealed` por padrão. Só deixe uma classe aberta para herança quando houver um motivo.
+- Use `record` para contratos e DTOs (eventos, requests, responses).
+- Respeite o *nullable*: não use o operador `!` para silenciar avisos. Trate o caso nulo.
+- Comentários em português, e só para explicar **por que** algo é feito, nunca **o que** o código já diz.
+
+## Projeto `MotorCredito.Dominio`
+
+- Sem nenhuma referência a AWS SDK, MongoDB, Kafka, HTTP ou sistema de arquivos.
+- Regras de negócio em métodos puros: mesma entrada, mesma saída, sem efeitos colaterais.
+- Dependências externas (repositórios, clientes) existem aqui só como **interfaces**.
+
+## Handlers das Lambdas (`MotorCredito.Lambda.*`)
+
+- A classe `Function` tem dois construtores:
+  - **sem parâmetros**: usado pelo runtime da Lambda; monta as dependências reais;
+  - **com parâmetros**: recebe as dependências; usado pelos testes.
+- O handler só orquestra: desserializa a entrada, chama o domínio ou os serviços e monta a saída. Regra de negócio não fica no handler.
+- Clientes de infraestrutura (`MongoClient`, `IProducer`, `AmazonLambdaClient`) são criados **uma vez** e guardados em campo estático ou de instância, nunca dentro do método do handler.
+- Variáveis de ambiente são lidas **uma vez**, na inicialização. Se uma variável obrigatória estiver ausente, lance uma exceção clara com o nome da variável, para a falha aparecer logo no *cold start*.
+- Métodos com I/O são `async` e terminam em `Async`. Nunca use `.Result` ou `.Wait()`.
+- O producer Kafka faz `Flush` antes de o handler retornar.
+
+## Dados e tempo
+
+- Valores monetários sempre em `decimal`.
+- Datas sempre em UTC, obtidas de um `TimeProvider` recebido por injeção. Nunca use `DateTime.Now` nem `DateTime.UtcNow`.
+
+## Erros e logs
+
+- Use exceções de domínio específicas, herdando da exceção base do projeto.
+- Nunca capture uma exceção sem registrar em log ou relançar.
+- Nunca escreva o CPF completo em log, exceção ou resposta. Use a rotina de mascaramento da spec 05.
+- Não use `Console.WriteLine` para log; use o mecanismo definido na spec 05.
+===== .github/instructions/testes.instructions.md =====
+---
+applyTo: "tests/**/*.cs"
+description: Regras para os projetos de teste (xUnit, NSubstitute e Shouldly).
+---
+
+# Regras para os testes em `tests/`
+
+Estas regras complementam a [spec 00](../../_context/specs/00_especificacao-constituicao-e-convencoes.md), seção 4.5. Em caso de conflito, a spec 00 prevalece.
+
+## Ferramentas
+
+- Framework: **xUnit**.
+- Mocks: **NSubstitute** (`Substitute.For<T>()`). Nunca use Moq.
+- Asserções: **Shouldly** (`resultado.ShouldBe(...)`). Nunca use FluentAssertions nem `Assert.*` do xUnit.
+- Integração: **Testcontainers** para MongoDB e Kafka reais.
+
+## Estrutura de cada teste
+
+- Nome no formato `Deve_<resultado>_Quando_<condicao>`, em português.
+- Corpo em **Arrange / Act / Assert**, com as três partes separadas por uma linha em branco.
+- Um teste verifica **um** comportamento.
+- Casos com a mesma lógica e dados diferentes usam `[Theory]` com `[InlineData]` ou `[MemberData]`.
+- Acima de cada teste, um comentário indicando a spec e os itens cobertos:
+
+```csharp
+// Spec 06 — cobre RN-02, CA-01, EC-03
+[Fact]
+public void Deve_enquadrar_risco_alto_Quando_comprometimento_de_renda_passa_do_limite()
+```
+
+## Testes unitários
+
+- Não acessam rede, banco, Kafka nem sistema de arquivos.
+- Toda dependência externa é substituída por um mock do NSubstitute.
+- O tempo é controlado com um `TimeProvider` falso: `Substitute.For<TimeProvider>()` com `GetUtcNow().Returns(...)`.
+- Não usam `Thread.Sleep` nem `Task.Delay` para esperar algo acontecer.
+
+## Testes de integração
+
+- Marcados com `[Trait("Category", "Integracao")]`.
+- Cada classe de teste sobe seus próprios containers (ou compartilha via *fixture* do xUnit) e usa um nome de banco único, para os testes não interferirem entre si.
+- Não dependem do `docker compose` do projeto nem do LocalStack.
+
+## Testes de arquitetura
+
+- Marcados com `[Trait("Category", "Arquitetura")]`.
+- Ficam no projeto `MotorCredito.Arquitetura.Tests`.
+- São a única exceção à regra de não ler arquivos: leem o `.slnx`, os `.csproj` e os `.props` do repositório para verificar as regras de referência e os pacotes proibidos da spec 00.
+- Localizam a raiz do repositório subindo a partir de `AppContext.BaseDirectory` até encontrar o `MotorAnaliseCredito.slnx`.
+
+## Dados de teste
+
+- Nunca use CPF real. Use valores claramente fictícios, como `12345678901`.
+- Valores monetários em `decimal`, com o sufixo `m` (`25000m`).
+===== .github/prompts/implementar-especificacao.prompt.md =====
+---
+name: implementar-especificacao
+description: Implementa uma spec de _context/specs seguindo a spec 00 e a definição de pronto.
+argument-hint: Número da spec, por exemplo 06
+agent: agent
+---
+
+# Implementar a spec ${input:spec:número da spec, por exemplo 06}
+
+Você vai implementar a spec de número **${input:spec}**, que está em `_context/specs/` com o nome começando por `${input:spec}_`.
+
+Siga as etapas abaixo **na ordem**. Não pule etapas.
+
+## Etapa 1 — Ler o contexto
+
+Leia por completo:
+
+1. [memory.md](../../_context/memory.md)
+2. [Spec 00 — Constituição e convenções](../../_context/specs/00_especificacao-constituicao-e-convencoes.md)
+3. A spec `${input:spec}`
+4. Todos os arquivos listados em **Depende de** no cabeçalho da spec `${input:spec}`
+
+## Etapa 2 — Verificar se pode começar
+
+Confira os itens abaixo. Se **qualquer um** falhar, pare, explique o que falhou e não escreva código:
+
+- [ ] A spec `${input:spec}` está com status `Aprovada`.
+- [ ] Todas as specs listadas em **Depende de** estão com status `Implementada`.
+- [ ] A branch atual se chama `spec/${input:spec}-<descricao-curta>`. Se não, peça para eu criar a branch; não crie você mesmo.
+- [ ] A spec não tem ambiguidade, lacuna ou contradição com a spec 00 ou com as ADRs. Se tiver, liste cada ponto como pergunta.
+
+## Etapa 3 — Apresentar o plano e aguardar
+
+Antes de escrever código, mostre:
+
+1. A lista de arquivos que serão criados ou alterados, baseada na seção **3. Arquivos e Onde Alterar**.
+2. A lista de testes que serão escritos, baseada na seção **5. Testes**, com os `RN`, `CA` e `EC` que cada um cobre.
+3. Qualquer `RN`, `CA` ou `EC` que ainda não tenha teste associado na spec.
+
+**Aguarde minha confirmação** antes de seguir para a etapa 4.
+
+## Etapa 4 — Implementar
+
+- Implemente seguindo a seção **4. Implementação Detalhada** e as convenções da spec 00.
+- Escreva os testes junto com o código.
+- Não implemente nada que esteja em **7. Non-Goals**.
+- Se surgir uma dúvida durante a implementação, pare e pergunte. Não invente regras, nomes de campos ou valores.
+- Não altere outras specs nem ADRs. Se achar que uma precisa mudar, aponte no relatório final.
+
+## Etapa 5 — Verificar
+
+Rode e corrija até passar:
+
+```bash
+dotnet build
+dotnet test
+```
+
+O build precisa terminar **sem erros e sem warnings**. Testes de integração (`Category=Integracao`) precisam do Docker rodando.
+
+## Etapa 6 — Fechar a spec
+
+1. Altere o status da spec `${input:spec}` para `Implementada`.
+2. **Reescreva** o `_context/memory.md` com o novo estado: tabela de specs, próximo passo, armadilhas descobertas e pendências.
+3. Adicione uma entrada **no topo** do `_context/changelog.md`, com a data de hoje.
+4. Atualize o `README.md` se algum comando ou passo de execução mudou.
+
+**Não faça commit nem push.** Eu faço os commits.
+
+## Etapa 7 — Relatório final
+
+Responda com:
+
+1. **Rastreabilidade:** tabela com cada `RN`, `CA` e `EC` da spec e o teste que o cobre.
+2. **Arquivos:** lista dos arquivos criados e alterados.
+3. **Desvios:** qualquer ponto em que a implementação diferiu da spec, e por quê. Se não houver, escreva "Nenhum".
+4. **Checklist** da definição de pronto (spec 00, seção 2), marcada.
+5. **Sugestão de mensagem de commit** em uma linha, no padrão da seção 4.6 da spec 00.
+===== Directory.Build.props =====
+<Project>
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+</Project>
+
+===== Directory.Packages.props =====
+<Project>
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageVersion Include="Amazon.Lambda.Core" Version="3.4.0" />
+    <PackageVersion Include="Amazon.Lambda.Serialization.SystemTextJson" Version="3.0.1" />
+    <PackageVersion Include="xunit" Version="2.9.3" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="4.0.1" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.12.0" />
+    <PackageVersion Include="NSubstitute" Version="6.2.0" />
+    <PackageVersion Include="Shouldly" Version="4.3.0" />
+    <PackageVersion Include="coverlet.collector" Version="10.1.1" />
+  </ItemGroup>
+</Project>
+
+===== docs/adr/0001-invocacao-sincrona-entre-lambdas.md =====
+# ADR 0001 — Invocação síncrona entre Lambdas (processador → motor de score)
+
+- **Status:** Aceita
+- **Data:** 2026-11-21
+
+## Contexto
+
+O cálculo de score é uma regra de negócio determinística: a mesma entrada sempre produz a mesma saída e não precisa de banco nem de rede. Queremos que essa regra fique isolada, testável sem nenhum mock de infraestrutura e com ciclo de deploy independente do restante da esteira.
+
+A Lambda `processador-proposta` precisa do resultado do score **antes** de gravar a decisão e publicar o evento `credito.propostas.avaliadas`. Ou seja, o fluxo depende da resposta e não pode seguir sem ela.
+
+## Decisão
+
+O `processador-proposta` invoca a Lambda `motor-regras-score` de forma **síncrona** (`InvocationType = RequestResponse`) via `AWSSDK.Lambda`.
+
+Regras que acompanham a decisão:
+
+1. **Contrato explícito.** Entrada `AvaliacaoScoreRequest` e saída `AvaliacaoScoreResponse` ficam no projeto `MotorCredito.Dominio`, compartilhado pelas duas Lambdas.
+2. **Abstração no chamador.** O processador depende de uma interface (`IMotorScoreClient`), não do SDK diretamente. A implementação padrão usa `AmazonLambdaClient`; trocar por uma chamada em memória exige só outra implementação da interface.
+3. **Tratamento de erro.** Uma exceção dentro do motor não vira exceção HTTP no chamador: o `Invoke` retorna sucesso com o campo `FunctionError` preenchido. O cliente deve verificar `FunctionError` e transformar em exceção de domínio.
+4. **Timeouts encadeados.** O timeout do processador deve ser maior que o do motor somado à latência da chamada, para o processador nunca morrer esperando.
+5. **Cliente reaproveitado.** O `AmazonLambdaClient` é criado uma única vez, fora do handler.
+
+## Alternativas consideradas
+
+| Alternativa | Por que não agora |
+| --- | --- |
+| **Motor como biblioteca dentro do processador** (chamada em memória) | É a opção mais barata e simples, e provavelmente a recomendada em produção. Fica descartada **só para a POC**, porque o objetivo é treinar a comunicação entre Lambdas. A interface `IMotorScoreClient` mantém essa troca a uma implementação de distância. |
+| **AWS Step Functions** orquestrando as etapas | Resolve orquestração e retries de forma declarativa, mas adiciona um serviço a mais para emular e estudar. Fica para uma evolução futura. |
+| **Comunicação assíncrona via Kafka** (tópico de pedido de score e tópico de resposta) | Desacopla totalmente, mas exige correlação de mensagens e torna o fluxo bem mais complexo para um cálculo que leva milissegundos. |
+
+## Consequências
+
+**Positivas**
+
+- O domínio fica isolado de verdade: a Lambda do motor não referencia o projeto de infraestrutura.
+- O motor pode ser testado só com dados de entrada e saída.
+- O time pratica invocação entre Lambdas, contratos compartilhados e tratamento de `FunctionError`.
+
+**Negativas (e conhecidas)**
+
+- **Custo duplicado:** enquanto o motor executa, o processador fica parado aguardando e também é cobrado. A AWS documenta esse padrão como antipadrão para produção.
+- **Cold start em cadeia:** se as duas Lambdas estiverem frias, as latências se somam.
+- **Acoplamento temporal:** se o motor estiver indisponível, o processador falha e o lote do Kafka é reentregue. A idempotência (ADR 0004) garante que isso não gere duplicidade.
+
+## Quando revisitar
+
+Antes de levar o padrão para produção, ou se as medições de latência e custo mostrarem que a chamada síncrona é um gargalo. Nesse caso, a primeira opção é a alternativa da biblioteca em memória.
+===== docs/adr/0002-runtime-dotnet10-gerenciado-vs-native-aot.md =====
+# ADR 0002 — Runtime gerenciado `dotnet10` em vez de Native AOT
+
+- **Status:** Aceita
+- **Data:** 2026-11-21
+
+## Contexto
+
+As Lambdas serão escritas em C#. Na AWS existem dois caminhos principais para .NET:
+
+1. **Runtime gerenciado** (`dotnet10`): a AWS fornece e atualiza o runtime; publicamos só as DLLs da aplicação.
+2. **Native AOT**: o código é compilado para binário nativo e roda no runtime `provided.al2023` (runtime customizado). O cold start costuma cair bastante, mas exige trimming, serialização JSON por *source generator* e bibliotecas compatíveis com AOT.
+
+Pontos que pesam na decisão:
+
+- O **.NET 8** chega ao fim de suporte no Lambda em **novembro de 2026**. O **.NET 10** é a versão LTS atual, com suporte no Lambda até **novembro de 2028**.
+- O LocalStack suporta o runtime `dotnet10` desde a versão 4.13.
+- Nem todas as bibliotecas do projeto têm compatibilidade garantida com trimming/AOT (`MongoDB.Driver` e `Confluent.Kafka` precisam ser validadas).
+- Quem clonar o projeto pode estar em uma máquina `x86_64` ou `arm64` (como Macs com Apple Silicon).
+
+## Decisão
+
+- Usar o **runtime gerenciado `dotnet10`**, com `TargetFramework` `net10.0`.
+- Fixar o SDK 10 no repositório com um `global.json` (a máquina pode ter outros SDKs instalados, como o 11).
+- Usar **`x86_64`** como arquitetura padrão das Lambdas, configurável pela variável `LAMBDA_ARCHITECTURE` no `.env` (`x86_64` ou `arm64`). Quem estiver em uma máquina `arm64` troca o valor e evita que o LocalStack precise emular outra arquitetura.
+- Serializar com `Amazon.Lambda.Serialization.SystemTextJson`. Sempre que possível, usar um `JsonSerializerContext` (*source generator*) desde o início, para não fechar a porta do AOT no futuro.
+
+## Alternativas consideradas
+
+| Alternativa | Por que não agora |
+| --- | --- |
+| **Native AOT** (`provided.al2023`) | Melhor cold start, mas aumenta muito a complexidade de build e exige validar a compatibilidade de cada biblioteca. O foco da POC é a arquitetura orientada a eventos, não a otimização de inicialização. |
+| **.NET 8** gerenciado | Fim de suporte no Lambda em novembro de 2026. Começar um projeto novo nele não faz sentido. |
+| **.NET 11** | Não é LTS e não tem runtime gerenciado no Lambda. |
+| **Imagem de container** em vez de `.zip` | Útil para pacotes grandes ou dependências nativas, que não é o caso. O `.zip` é mais simples de carregar no LocalStack. |
+
+## Consequências
+
+**Positivas**
+
+- Build e empacotamento simples com `dotnet lambda package`.
+- Nenhuma restrição de reflection ou trimming nas bibliotecas.
+- Runtime com suporte até 2028.
+
+**Negativas**
+
+- Cold start maior que o do AOT. Para uma POC local isso não é problema, mas precisa ser medido antes de produção.
+- Na AWS real, `arm64` (Graviton) costuma sair mais barato que `x86_64`. A escolha de arquitetura deve ser revista no deploy.
+
+## Quando revisitar
+
+- Ao preparar um deploy real: medir cold start e avaliar Native AOT ou SnapStart, além de `arm64`.
+- Quando a AWS anunciar o próximo runtime .NET LTS.
+===== docs/adr/0003-emulador-local-localstack.md =====
+# ADR 0003 — LocalStack como emulador local da AWS
+
+- **Status:** Aceita, **condicionada à validação da spec 03**
+- **Data:** 2026-11-21
+
+## Contexto
+
+O projeto precisa rodar 100% na máquina de quem clonar o repositório, sem conta na AWS e sem pipeline de CI/CD. Os recursos AWS necessários são:
+
+- **Lambda** com runtime `dotnet10`
+- **Event Source Mapping (ESM)** consumindo um Kafka *self-managed* (um container Kafka comum, não o MSK)
+- **Lambda Function URL**
+- **IAM** básico (roles das funções)
+
+Mudanças recentes no cenário:
+
+- Desde **23 de março de 2026**, a imagem do LocalStack exige um **auth token** (`LOCALSTACK_AUTH_TOKEN`) e uma conta criada.
+- O plano gratuito (**Hobby**) é restrito a **uso pessoal, educacional e não comercial**.
+- Na tabela de planos do LocalStack, o **MSK** não está incluído no Hobby. O suporte ao **ESM com Kafka self-managed** no Hobby **não está documentado** na página de planos e precisa ser confirmado na prática.
+- O `awslocal` foi marcado como descontinuado em favor da nova CLI `lstk`.
+- Em **novembro de 2026** a AWS lançou o **AWS Emulator**, gratuito e com licença CC0, ainda muito recente.
+
+## Decisão
+
+1. Usar o **LocalStack** (imagem única, com auth token lido do `.env`) para emular Lambda, IAM, ESM e Function URL.
+2. Usar **Kafka self-managed** em container (KRaft) em vez de MSK, porque o MSK não está no plano gratuito.
+3. A **spec 03** começa com uma prova de conceito mínima: uma Lambda .NET "hello world" acionada por uma mensagem no Kafka via ESM. Essa decisão só é confirmada se essa prova passar.
+4. **Plano B**, se o ESM com Kafka não funcionar no plano disponível: um container pequeno (*poller*) que consome os tópicos e invoca as Lambdas no LocalStack com o **mesmo formato de evento** `KafkaEvent`. O código das Lambdas não muda; muda só quem dispara.
+5. Confirmar se o uso se enquadra no plano Hobby (não comercial) ou se é necessária uma licença paga.
+
+## Alternativas consideradas
+
+| Alternativa | Por que não agora |
+| --- | --- |
+| **AWS Emulator** (AWS, CC0) | Gratuito e sem conta, mas lançado em novembro de 2026; ainda não sabemos se executa Lambdas .NET e ESM com Kafka. Vale reavaliar em alguns meses. |
+| **AWS SAM CLI (`sam local`)** | Executa Lambdas localmente, mas não emula ESM com Kafka nem a integração entre serviços. |
+| **Conta AWS real** | Fidelidade total, mas gera custo e foge do objetivo de rodar localmente. |
+| **Rodar as Lambdas como aplicações console** | Perde o objetivo de treinar o modelo de execução do Lambda (ciclo de vida, eventos, empacotamento). |
+
+## Consequências
+
+**Positivas**
+
+- Ambiente próximo do real, com os mesmos comandos da AWS CLI.
+- Um único `docker compose up` sobe tudo.
+
+**Negativas**
+
+- Cada pessoa que rodar o projeto precisa criar uma conta no LocalStack e gerar um token.
+- Dependência de um fornecedor com termos de licença que mudaram em 2026.
+- Risco aberto sobre o ESM com Kafka no plano gratuito, coberto pelo plano B.
+
+## Quando revisitar
+
+- Logo após a prova da spec 03 (confirmar ou ativar o plano B).
+- Ao decidir entre `awslocal` e `lstk` nos scripts.
+- Se o AWS Emulator amadurecer e passar a cobrir Lambda + ESM com Kafka.
+===== docs/adr/0004-idempotencia-e-publicacao-no-kafka.md =====
+# ADR 0004 — Idempotência e publicação no Kafka (escrita dupla)
+
+- **Status:** Aceita
+- **Data:** 2026-11-21
+
+## Contexto
+
+O Kafka, via Event Source Mapping, entrega mensagens **pelo menos uma vez** (*at-least-once*): se a Lambda falhar ou estourar o timeout, o lote inteiro é entregue de novo.
+
+A Lambda `processador-proposta` faz duas escritas em sistemas diferentes:
+
+1. Grava a decisão no **MongoDB** (coleção `propostas`).
+2. Publica a decisão no **Kafka** (tópico `credito.propostas.avaliadas`).
+
+Não existe transação que englobe MongoDB e Kafka juntos. Se a Lambda gravar no Mongo e cair antes de publicar, uma reentrega que simplesmente "pula propostas já processadas" faria o evento **sumir**.
+
+## Decisão
+
+### 1. Chave e índices
+
+- A chave de idempotência é o **`idProposta`**.
+- A coleção `propostas` tem **índice único** em `idProposta`.
+- A coleção `auditoria_propostas` tem **índice único composto** em `idProposta` + `evento`.
+- A mensagem Kafka é publicada com **chave = `idProposta`**, para que todos os eventos de uma proposta caiam na mesma partição e sejam processados em ordem.
+
+### 2. Estados da proposta
+
+```text
+EM_PROCESSAMENTO → APROVADA | REPROVADA
+                         └─ publicadoEm preenchido quando o Kafka confirmar a publicação
+```
+
+O documento nasce como `EM_PROCESSAMENTO`, com `UpdateOne` + `$setOnInsert` + `IsUpsert = true`. Se ele já existir, o upsert não altera nada, e o processador lê o estado atual para decidir o que fazer.
+
+### 3. Regras de reprocessamento
+
+| Estado encontrado ao receber a mensagem | Ação |
+| --- | --- |
+| Não existe | Cria como `EM_PROCESSAMENTO`, chama o motor, grava a decisão, publica e preenche `publicadoEm`. |
+| `EM_PROCESSAMENTO` | Execução anterior caiu antes de gravar a decisão. Chama o motor de novo (ele é determinístico, então o resultado é o mesmo) e segue o fluxo. |
+| `APROVADA` ou `REPROVADA` **sem** `publicadoEm` | Execução anterior caiu entre gravar e publicar. **Não recalcula**; só publica a decisão gravada e preenche `publicadoEm`. |
+| `APROVADA` ou `REPROVADA` **com** `publicadoEm` | Já foi tudo feito. Ignora a mensagem e registra em log como duplicata. |
+
+### 4. Publicação confirmada
+
+O `publicadoEm` só é preenchido depois que o producer confirmar a entrega (`ProduceAsync` concluído com sucesso). O producer faz `Flush` antes do handler retornar.
+
+### 5. Consequência para o consumidor
+
+Como a publicação pode acontecer mais de uma vez (falha depois de publicar e antes de gravar `publicadoEm`), o tópico `credito.propostas.avaliadas` também é *at-least-once*. Por isso a Lambda `despachante-notificacao` **também é idempotente**: o índice único de `auditoria_propostas` impede o registro duplicado, e o erro de chave duplicada é tratado como sucesso.
+
+## Alternativas consideradas
+
+| Alternativa | Por que não agora |
+| --- | --- |
+| **Transactional Outbox** (gravar o evento numa coleção `outbox` na mesma transação da decisão e ter um *relay* que publica) | É o padrão mais robusto, mas exige MongoDB em *replica set* (para transações) e mais um componente para publicar. Fica registrado como evolução natural. |
+| **Transações do Kafka / exactly-once** | Garantem atomicidade só dentro do Kafka; não cobrem a gravação no MongoDB. |
+| **Ignorar qualquer proposta já existente** | Simples, mas perde eventos no cenário de falha entre gravar e publicar. |
+| **Idempotência via Powertools for AWS Lambda** | Funciona bem, mas o armazenamento padrão é o DynamoDB, que adicionaria mais um serviço ao projeto. |
+
+## Consequências
+
+**Positivas**
+
+- Nenhuma proposta é recalculada nem auditada em duplicidade.
+- Nenhum evento de decisão se perde em falhas entre as duas escritas.
+- Os cenários de falha viram casos de teste claros (ver specs 04 e 07).
+
+**Negativas**
+
+- Mais lógica no processador (a tabela de reprocessamento).
+- O tópico de saída pode ter eventos duplicados, o que empurra a responsabilidade de idempotência também para o consumidor.
+
+## Quando revisitar
+
+Se o projeto evoluir para produção ou para múltiplos consumidores do tópico `credito.propostas.avaliadas`. Nesse caso, avaliar o Transactional Outbox.
+===== global.json =====
+{
+  "sdk": {
+    "version": "10.0.100",
+    "rollForward": "latestFeature",
+    "allowPrerelease": false
+  }
+}
+
+===== MotorAnaliseCredito.slnx =====
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/MotorCredito.Dominio/MotorCredito.Dominio.csproj" />
+    <Project Path="src/MotorCredito.Infraestrutura/MotorCredito.Infraestrutura.csproj" />
+    <Project Path="src/MotorCredito.Lambda.ConsultaProposta/MotorCredito.Lambda.ConsultaProposta.csproj" />
+    <Project Path="src/MotorCredito.Lambda.DespachanteNotificacao/MotorCredito.Lambda.DespachanteNotificacao.csproj" />
+    <Project Path="src/MotorCredito.Lambda.MotorRegrasScore/MotorCredito.Lambda.MotorRegrasScore.csproj" />
+    <Project Path="src/MotorCredito.Lambda.ProcessadorProposta/MotorCredito.Lambda.ProcessadorProposta.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/MotorCredito.Arquitetura.Tests/MotorCredito.Arquitetura.Tests.csproj" />
+    <Project Path="tests/MotorCredito.Lambda.ConsultaProposta.Tests/MotorCredito.Lambda.ConsultaProposta.Tests.csproj" />
+    <Project Path="tests/MotorCredito.Lambda.DespachanteNotificacao.Tests/MotorCredito.Lambda.DespachanteNotificacao.Tests.csproj" />
+    <Project Path="tests/MotorCredito.Lambda.MotorRegrasScore.Tests/MotorCredito.Lambda.MotorRegrasScore.Tests.csproj" />
+    <Project Path="tests/MotorCredito.Lambda.ProcessadorProposta.Tests/MotorCredito.Lambda.ProcessadorProposta.Tests.csproj" />
+  </Folder>
+</Solution>
+
+===== README.md =====
+# ⚡ Motor de Análise de Crédito — Serverless Event-Driven com AWS Lambda (.NET)
+
+[![.NET](https://img.shields.io/badge/.NET-10%20LTS%20%7C%20C%23-512BD4)](https://dotnet.microsoft.com/)
+[![Runtime](https://img.shields.io/badge/Runtime-AWS%20Lambda%20dotnet10-orange)](https://docs.aws.amazon.com/lambda/latest/dg/lambda-csharp.html)
+[![Broker](https://img.shields.io/badge/Broker-Apache%20Kafka%20(ESM)-red)](https://kafka.apache.org/)
+[![Database](https://img.shields.io/badge/Database-MongoDB-green)](https://www.mongodb.com/)
+[![Local](https://img.shields.io/badge/Ambiente-LocalStack-black)](https://localstack.cloud/)
+[![Tests](https://img.shields.io/badge/Testes-xUnit-blueviolet)](https://xunit.net/)
+[![SDD](https://img.shields.io/badge/Dev-Spec--Driven%20%2B%20Copilot-lightgrey)](./_context)
+
+---
+
+## 1. Resumo
+
+Arquitetura de referência **serverless orientada a eventos** (EDA) executada **localmente**, sem custo de nuvem. O projeto simula uma esteira transacional de análise de crédito composta por quatro funções **AWS Lambda em C# (.NET 10)**, emuladas no **LocalStack**, que consomem e produzem eventos no **Apache Kafka** via **Event Source Mapping (ESM)**, persistem no **MongoDB** e são cobertas por testes automatizados com **xUnit**.
+
+---
+
+## 2. Problema e Solução
+
+Em esteiras de crédito com alta concorrência, quatro problemas aparecem com frequência:
+
+1. **Motor de risco acoplado a I/O.** A regra de decisão é determinística, mas costuma ficar misturada com acesso a banco e mensageria, o que dificulta testar e escalar.
+2. **Connection storm em serverless.** Quando o tráfego do Kafka cresce, dezenas de instâncias concorrentes de Lambda abrindo conexões sem controle derrubam o MongoDB.
+3. **Entrega *at-least-once* do Kafka.** Falhas transitórias reentregam o mesmo evento. Sem idempotência, a mesma proposta é recalculada e auditada em duplicidade.
+4. **Escrita dupla (MongoDB + Kafka).** Se a Lambda grava a decisão no banco e falha antes de publicar no Kafka, a reentrega não pode simplesmente "pular" a proposta, senão o evento se perde.
+
+### Solução proposta
+
+- **Domínio puro isolado:** o cálculo de score roda em uma Lambda própria (`motor-regras-score`), sem dependência de rede ou banco, invocada de forma síncrona (`RequestResponse`) pela Lambda orquestradora.
+- **Gerenciamento de conexões:** `MongoClient`, `IProducer` (Confluent.Kafka) e `AmazonLambdaClient` são instâncias estáticas criadas fora do handler, reaproveitadas entre *warm starts*, com pool enxuto (`MaxConnectionPoolSize = 5`).
+- **Idempotência:** índice único por `idProposta` + upsert com `$setOnInsert`, máquina de estados explícita da proposta e marcação de publicação (`publicadoEm`) para que uma reentrega republique o evento quando a decisão já foi gravada mas não publicada.
+- **Observabilidade e consulta:** interface web para inspecionar os tópicos do Kafka e uma Lambda HTTP (`consulta-proposta`) para auditar o MongoDB direto pelo navegador.
+
+---
+
+## 3. Arquitetura
+
+```mermaid
+flowchart TD
+    UI["AKHQ (UI do Kafka) / script"] -->|publica evento| T1[["Kafka: credito.propostas.recebidas"]]
+    T1 -->|ESM - lote| L1["λ processador-proposta"]
+    L1 -->|1. upsert idempotente| M1[("MongoDB: propostas")]
+    L1 -->|2. Invoke RequestResponse| L2["λ motor-regras-score<br/>(domínio puro)"]
+    L2 -->|3. score + faixa + limite| L1
+    L1 -->|4. atualiza decisão| M1
+    L1 -->|5. publica decisão| T2[["Kafka: credito.propostas.avaliadas"]]
+    T2 -->|ESM - lote| L3["λ despachante-notificacao"]
+    L3 -->|6. trilha de auditoria idempotente| M2[("MongoDB: auditoria_propostas")]
+    C["Browser / cURL"] -->|GET ?idProposta=| L4["λ consulta-proposta<br/>(Function URL)"]
+    L4 --> M1
+    L4 --> M2
+```
+
+**Ciclo de vida da proposta:** `EM_PROCESSAMENTO → APROVADA | REPROVADA` (+ `publicadoEm` quando o evento de decisão foi confirmado no Kafka).
+
+---
+
+## 4. Componentes
+
+| Lambda | Gatilho | Evento de entrada (.NET) | Responsabilidade |
+| --- | --- | --- | --- |
+| `processador-proposta` | ESM em `credito.propostas.recebidas` | `KafkaEvent` | Decodifica o lote, registra `EM_PROCESSAMENTO` com trava de idempotência, invoca o motor via AWS SDK, grava a decisão e publica em `credito.propostas.avaliadas`. |
+| `motor-regras-score` | Invocação direta (`RequestResponse`) | DTO próprio (`AvaliacaoScoreRequest`) | Avalia comprometimento de renda vs. valor solicitado, calcula o score, enquadra a faixa de risco (`BAIXO`, `MEDIO`, `ALTO`) e define o limite. Sem I/O. |
+| `despachante-notificacao` | ESM em `credito.propostas.avaliadas` | `KafkaEvent` | Persiste uma trilha imutável e idempotente em `auditoria_propostas`. |
+| `consulta-proposta` | Lambda Function URL (HTTP GET) | `APIGatewayHttpApiV2ProxyRequest` | Recebe `idProposta` via query string, agrega proposta + auditoria e devolve JSON (404 se não existir). |
+
+As regras de negócio, contratos e critérios de aceite de cada componente estão nas especificações em [`_context/`](./_context).
+
+---
+
+## 5. Decisões Técnicas
+
+Resumo das decisões. Os detalhes e trade-offs ficam registrados em [`docs/adr/`](./docs/adr).
+
+- **Runtime gerenciado `dotnet10`** (LTS). Native AOT fica fora do escopo inicial e será avaliado depois, medindo cold start.
+- **Invocação síncrona Lambda → Lambda** é uma escolha deliberada de estudo para isolar o domínio. Em produção isso tem custo (a orquestradora fica parada aguardando) e acoplamento; a alternativa (motor como biblioteca dentro da mesma Lambda) está documentada na ADR.
+- **Chave da mensagem Kafka = `idProposta`**, garantindo ordem por proposta dentro da partição.
+- **Producer Kafka com `Flush`** antes do retorno do handler, porque o ambiente da Lambda é congelado entre invocações.
+- **Dados sensíveis:** o CPF nunca aparece em logs (mascarado), em linha com a LGPD.
+
+---
+
+## 6. Stack Tecnológica
+
+| Tecnologia | Função no ecossistema |
+| --- | --- |
+| **.NET 10 / C#** | Linguagem e runtime das Lambdas (`dotnet10`) |
+| **Amazon.Lambda.\*** | `Core`, `Serialization.SystemTextJson`, `KafkaEvents`, `APIGatewayEvents` e `Amazon.Lambda.Tools` para empacotamento |
+| **AWSSDK.Lambda** | Invocação síncrona do motor de score |
+| **Confluent.Kafka** | Producer para publicar a decisão de crédito |
+| **MongoDB.Driver** | Persistência de propostas e auditoria |
+| **LocalStack** | Emulação local de Lambda, IAM, ESM e Function URL |
+| **Apache Kafka (KRaft)** | Broker de eventos, sem ZooKeeper |
+| **AKHQ** | Interface web para tópicos, mensagens e partições |
+| **xUnit + NSubstitute + Shouldly** | Testes unitários e mocks |
+| **Testcontainers for .NET** | Testes de integração com MongoDB e Kafka reais |
+| **coverlet** | Relatório de cobertura |
+
+---
+
+## 7. Estrutura do Repositório
+
+```text
+.
+├── .github/
+│   ├── copilot-instructions.md        # regras globais para o Copilot
+│   ├── instructions/                  # instruções por tipo de arquivo
+│   └── prompts/                       # prompts reutilizáveis (ex.: implementar uma spec)
+├── _context/                          # especificações (fonte da verdade do desenvolvimento)
+├── docs/adr/                          # registros de decisão de arquitetura
+├── infra/localstack/init/ready.d/     # script que cria Lambdas, ESMs e Function URL
+├── scripts/                           # empacotamento, publicação de eventos de teste
+├── src/
+│   ├── MotorCredito.Dominio/                    # contratos, entidades e regras puras
+│   ├── MotorCredito.Infraestrutura/             # MongoDB, Kafka, cliente Lambda
+│   ├── MotorCredito.Lambda.MotorRegrasScore/    # depende só do Dominio
+│   ├── MotorCredito.Lambda.ProcessadorProposta/
+│   ├── MotorCredito.Lambda.DespachanteNotificacao/
+│   └── MotorCredito.Lambda.ConsultaProposta/
+├── tests/                             # um projeto de teste por Lambda + integração
+├── docker-compose.yml
+├── .env.example
+└── MotorAnaliseCredito.slnx
+```
+
+---
+
+## 8. Pré-requisitos
+
+- [.NET 10 SDK](https://dotnet.microsoft.com/download)
+- Amazon.Lambda.Tools: `dotnet tool install -g Amazon.Lambda.Tools`
+- [Docker](https://www.docker.com/) e Docker Compose
+- **Conta no LocalStack + auth token.** Desde março de 2026 a imagem do LocalStack exige `LOCALSTACK_AUTH_TOKEN`. O plano gratuito (Hobby) é restrito a uso não comercial; verifique se o seu uso se enquadra nele.
+- Opcional: [`awslocal`](https://github.com/localstack/awscli-local) para inspecionar os recursos
+
+---
+
+## 9. Como Executar Localmente
+
+### Passo 1: Configurar variáveis
+
+```bash
+cp .env.example .env
+# edite o .env e preencha LOCALSTACK_AUTH_TOKEN
+```
+
+### Passo 2: Restaurar, testar e empacotar as Lambdas
+
+```bash
+dotnet restore
+dotnet test
+./scripts/empacotar-lambdas.sh
+```
+
+*Gera um pacote por Lambda em `dist/*.zip` (via `dotnet lambda package`), que o LocalStack carrega na inicialização.*
+
+### Passo 3: Subir o ambiente
+
+```bash
+docker compose up -d
+```
+
+*Sobe Kafka, MongoDB, AKHQ (porta `8080`) e LocalStack (porta `4566`). O script em `infra/localstack/init/ready.d/` cria os tópicos, as 4 Lambdas, os 2 Event Source Mappings e a Function URL.*
+
+### Passo 4: Conferir os recursos
+
+```bash
+awslocal lambda list-functions --query "Functions[].FunctionName"
+awslocal lambda list-event-source-mappings --query "EventSourceMappings[].[FunctionArn,State]"
+```
+
+---
+
+## 10. Testes Automatizados
+
+| Camada | Escopo | Comando |
+| --- | --- | --- |
+| **Arquitetura** | Regras de referência entre projetos e pacotes proibidos | `dotnet test --filter "Category=Arquitetura"` |
+| **Unitários** | Regras de cada Lambda isoladas, com SDK da AWS, Kafka e MongoDB mockados | `dotnet test --filter "Category!=Integracao"` |
+| **Integração** | Repositórios e idempotência contra MongoDB/Kafka reais via Testcontainers | `dotnet test --filter "Category=Integracao"` |
+| **Cobertura** | Relatório consolidado | `dotnet test --collect:"XPlat Code Coverage"` |
+
+Cenários obrigatórios por Lambda (detalhados nas specs):
+
+- **Motor de score:** tabela de casos de score, faixa de risco e limite, incluindo valores de borda e entradas inválidas.
+- **Processador:** lote com várias mensagens, mensagem duplicada, mensagem corrompida, falha na invocação do motor e falha na publicação após gravar a decisão.
+- **Despachante:** gravação da auditoria, reentrega do mesmo evento sem duplicar e lote vazio ou corrompido.
+- **Consulta:** proposta encontrada com auditoria, `idProposta` ausente (400) e proposta inexistente (404).
+
+---
+
+## 11. Teste Manual Ponta a Ponta
+
+### Cenário 1: Disparar uma proposta pela interface do Kafka
+
+1. Abra **`http://localhost:8080`** (AKHQ).
+2. Em **Topics**, selecione **`credito.propostas.recebidas`**.
+3. Clique em **Produce to topic**, use `PROP-2026-001` como chave e envie:
+
+```json
+{
+  "idProposta": "PROP-2026-001",
+  "documentoCpf": "12345678901",
+  "valorSolicitado": 25000,
+  "rendaMensal": 8000
+}
+```
+
+4. Abra o tópico **`credito.propostas.avaliadas`** e confira a decisão com score e limite.
+
+### Cenário 2: Consultar o resultado pela Function URL
+
+```bash
+URL=$(awslocal lambda get-function-url-config \
+  --function-name consulta-proposta --query FunctionUrl --output text)
+
+curl "${URL}?idProposta=PROP-2026-001"
+```
+
+*No LocalStack a URL tem o formato `http://<url-id>.lambda-url.us-east-1.localhost.localstack.cloud:4566/`.*
+
+**Resposta esperada:**
+
+```json
+{
+  "proposta": {
+    "idProposta": "PROP-2026-001",
+    "documentoCpf": "***.456.789-**",
+    "valorSolicitado": 25000,
+    "rendaMensal": 8000,
+    "pontuacaoScore": 750,
+    "faixaRisco": "BAIXO",
+    "limiteAprovado": 25000,
+    "status": "APROVADA",
+    "criadoEm": "2026-11-09T10:00:00.000Z",
+    "avaliadoEm": "2026-11-09T10:00:01.000Z",
+    "publicadoEm": "2026-11-09T10:00:01.200Z"
+  },
+  "auditoria": [
+    {
+      "evento": "DECISAO_REGISTRADA",
+      "registradoEm": "2026-11-09T10:00:02.000Z"
+    }
+  ]
+}
+```
+
+### Cenário 3: Validar a idempotência
+
+Reenvie **exatamente a mesma mensagem** do Cenário 1 e consulte de novo: a proposta não deve ser recalculada e a auditoria deve continuar com um único registro.
+
+---
+
+## 12. Desenvolvimento Orientado a Especificação
+
+Cada funcionalidade nasce de uma spec em [`_context/`](./_context), implementada na ordem numérica. O fluxo de trabalho:
+
+1. Escolher a próxima spec e abrir uma branch.
+2. Pedir ao Copilot para implementá-la com o prompt de `.github/prompts/`, respeitando `.github/copilot-instructions.md`.
+3. Revisar o PR contra os **critérios de aceite** da spec. Se o código divergir da spec, corrige-se a spec primeiro e depois o código.
+
+---
+
+## 13. Fora do Escopo (por enquanto)
+
+- Deploy em uma conta AWS real (SAM ou CDK)
+- Native AOT e comparação de cold start
+- Schema Registry para os eventos
+- Autenticação na Function URL
+- Pipeline de CI/CD: o projeto foi feito para rodar localmente; basta clonar e seguir a seção 9
+===== scripts/empacotar-lambdas.sh =====
+#!/usr/bin/env bash
+set -euo pipefail
+
+raiz="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$raiz"
+
+if [[ -f "$raiz/.env" ]]; then
+  set -a
+  source "$raiz/.env"
+  set +a
+fi
+
+arquitetura="${LAMBDA_ARCHITECTURE:-x86_64}"
+if [[ "$arquitetura" != "x86_64" && "$arquitetura" != "arm64" ]]; then
+  echo "Erro: LAMBDA_ARCHITECTURE inválida '$arquitetura'. Valores aceitos: x86_64 ou arm64." >&2
+  exit 1
+fi
+
+if ! command -v dotnet >/dev/null 2>&1; then
+  echo "Erro: dotnet não foi encontrado. Instale o .NET 10 SDK." >&2
+  exit 1
+fi
+
+if ! dotnet lambda --help >/dev/null 2>&1; then
+  echo "Erro: Amazon.Lambda.Tools não foi encontrado. Instale com: dotnet tool install -g Amazon.Lambda.Tools" >&2
+  exit 1
+fi
+
+mkdir -p "$raiz/dist"
+
+lambdas="motor-regras-score:src/MotorCredito.Lambda.MotorRegrasScore
+processador-proposta:src/MotorCredito.Lambda.ProcessadorProposta
+despachante-notificacao:src/MotorCredito.Lambda.DespachanteNotificacao
+consulta-proposta:src/MotorCredito.Lambda.ConsultaProposta"
+
+while IFS= read -r lambda; do
+  nome="${lambda%%:*}"
+  projeto="${lambda#*:}"
+  echo "Empacotando $nome..."
+  dotnet lambda package \
+    --project-location "$raiz/$projeto" \
+    --configuration Release \
+    --framework net10.0 \
+    --function-architecture "$arquitetura" \
+    --output-package "$raiz/dist/$nome.zip"
+done <<< "$lambdas"
+
+echo "Pacotes gerados:"
+ls -1 "$raiz"/dist/*.zip
+
+===== src/MotorCredito.Dominio/MotorCredito.Dominio.csproj =====
+<Project Sdk="Microsoft.NET.Sdk">
+</Project>
+
+===== src/MotorCredito.Infraestrutura/MotorCredito.Infraestrutura.csproj =====
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\MotorCredito.Dominio\MotorCredito.Dominio.csproj" />
+  </ItemGroup>
+</Project>
+
+===== src/MotorCredito.Lambda.ConsultaProposta/aws-lambda-tools-defaults.json =====
+{
+  "function-runtime": "dotnet10",
+  "framework": "net10.0",
+  "configuration": "Release",
+  "function-handler": "MotorCredito.Lambda.ConsultaProposta::MotorCredito.Lambda.ConsultaProposta.Function::FunctionHandler"
+}
+
+===== src/MotorCredito.Lambda.ConsultaProposta/Function.cs =====
+using Amazon.Lambda.Core;
+using Amazon.Lambda.Serialization.SystemTextJson;
+
+[assembly: LambdaSerializer(typeof(DefaultLambdaJsonSerializer))]
+
+namespace MotorCredito.Lambda.ConsultaProposta;
+
+public sealed class Function
+{
+    public Function()
+    {
+    }
+
+    public string FunctionHandler(string entrada, ILambdaContext contexto)
+    {
+        _ = entrada;
+        _ = contexto;
+
+        return "consulta-proposta: esqueleto";
+    }
+}
+
+===== src/MotorCredito.Lambda.ConsultaProposta/MotorCredito.Lambda.ConsultaProposta.csproj =====
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AWSProjectType>Lambda</AWSProjectType>
+    <GenerateRuntimeConfigurationFiles>true</GenerateRuntimeConfigurationFiles>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Amazon.Lambda.Core" />
+    <PackageReference Include="Amazon.Lambda.Serialization.SystemTextJson" />
+    <ProjectReference Include="..\MotorCredito.Dominio\MotorCredito.Dominio.csproj" />
+    <ProjectReference Include="..\MotorCredito.Infraestrutura\MotorCredito.Infraestrutura.csproj" />
+  </ItemGroup>
+</Project>
+
+===== src/MotorCredito.Lambda.DespachanteNotificacao/aws-lambda-tools-defaults.json =====
+{
+  "function-runtime": "dotnet10",
+  "framework": "net10.0",
+  "configuration": "Release",
+  "function-handler": "MotorCredito.Lambda.DespachanteNotificacao::MotorCredito.Lambda.DespachanteNotificacao.Function::FunctionHandler"
+}
+
+===== src/MotorCredito.Lambda.DespachanteNotificacao/Function.cs =====
+using Amazon.Lambda.Core;
+using Amazon.Lambda.Serialization.SystemTextJson;
+
+[assembly: LambdaSerializer(typeof(DefaultLambdaJsonSerializer))]
+
+namespace MotorCredito.Lambda.DespachanteNotificacao;
+
+public sealed class Function
+{
+    public Function()
+    {
+    }
+
+    public string FunctionHandler(string entrada, ILambdaContext contexto)
+    {
+        _ = entrada;
+        _ = contexto;
+
+        return "despachante-notificacao: esqueleto";
+    }
+}
+
+===== src/MotorCredito.Lambda.DespachanteNotificacao/MotorCredito.Lambda.DespachanteNotificacao.csproj =====
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AWSProjectType>Lambda</AWSProjectType>
+    <GenerateRuntimeConfigurationFiles>true</GenerateRuntimeConfigurationFiles>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Amazon.Lambda.Core" />
+    <PackageReference Include="Amazon.Lambda.Serialization.SystemTextJson" />
+    <ProjectReference Include="..\MotorCredito.Dominio\MotorCredito.Dominio.csproj" />
+    <ProjectReference Include="..\MotorCredito.Infraestrutura\MotorCredito.Infraestrutura.csproj" />
+  </ItemGroup>
+</Project>
+
+===== src/MotorCredito.Lambda.MotorRegrasScore/aws-lambda-tools-defaults.json =====
+{
+  "function-runtime": "dotnet10",
+  "framework": "net10.0",
+  "configuration": "Release",
+  "function-handler": "MotorCredito.Lambda.MotorRegrasScore::MotorCredito.Lambda.MotorRegrasScore.Function::FunctionHandler"
+}
+
+===== src/MotorCredito.Lambda.MotorRegrasScore/Function.cs =====
+using Amazon.Lambda.Core;
+using Amazon.Lambda.Serialization.SystemTextJson;
+
+[assembly: LambdaSerializer(typeof(DefaultLambdaJsonSerializer))]
+
+namespace MotorCredito.Lambda.MotorRegrasScore;
+
+public sealed class Function
+{
+    public Function()
+    {
+    }
+
+    public string FunctionHandler(string entrada, ILambdaContext contexto)
+    {
+        _ = entrada;
+        _ = contexto;
+
+        return "motor-regras-score: esqueleto";
+    }
+}
+
+===== src/MotorCredito.Lambda.MotorRegrasScore/MotorCredito.Lambda.MotorRegrasScore.csproj =====
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AWSProjectType>Lambda</AWSProjectType>
+    <GenerateRuntimeConfigurationFiles>true</GenerateRuntimeConfigurationFiles>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Amazon.Lambda.Core" />
+    <PackageReference Include="Amazon.Lambda.Serialization.SystemTextJson" />
+    <ProjectReference Include="..\MotorCredito.Dominio\MotorCredito.Dominio.csproj" />
+  </ItemGroup>
+</Project>
+
+===== src/MotorCredito.Lambda.ProcessadorProposta/aws-lambda-tools-defaults.json =====
+{
+  "function-runtime": "dotnet10",
+  "framework": "net10.0",
+  "configuration": "Release",
+  "function-handler": "MotorCredito.Lambda.ProcessadorProposta::MotorCredito.Lambda.ProcessadorProposta.Function::FunctionHandler"
+}
+
+===== src/MotorCredito.Lambda.ProcessadorProposta/Function.cs =====
+using Amazon.Lambda.Core;
+using Amazon.Lambda.Serialization.SystemTextJson;
+
+[assembly: LambdaSerializer(typeof(DefaultLambdaJsonSerializer))]
+
+namespace MotorCredito.Lambda.ProcessadorProposta;
+
+public sealed class Function
+{
+    public Function()
+    {
+    }
+
+    public string FunctionHandler(string entrada, ILambdaContext contexto)
+    {
+        _ = entrada;
+        _ = contexto;
+
+        return "processador-proposta: esqueleto";
+    }
+}
+
+===== src/MotorCredito.Lambda.ProcessadorProposta/MotorCredito.Lambda.ProcessadorProposta.csproj =====
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AWSProjectType>Lambda</AWSProjectType>
+    <GenerateRuntimeConfigurationFiles>true</GenerateRuntimeConfigurationFiles>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Amazon.Lambda.Core" />
+    <PackageReference Include="Amazon.Lambda.Serialization.SystemTextJson" />
+    <ProjectReference Include="..\MotorCredito.Dominio\MotorCredito.Dominio.csproj" />
+    <ProjectReference Include="..\MotorCredito.Infraestrutura\MotorCredito.Infraestrutura.csproj" />
+  </ItemGroup>
+</Project>
+
+===== tests/MotorCredito.Arquitetura.Tests/LambdasTests.cs =====
+using System.Text.Json;
+using System.Xml.Linq;
+using Shouldly;
+
+namespace MotorCredito.Arquitetura.Tests;
+
+[Trait("Category", "Arquitetura")]
+public sealed class LambdasTests
+{
+    // Spec 01 - cobre RN-06
+    [Theory]
+    [InlineData("MotorCredito.Lambda.MotorRegrasScore")]
+    [InlineData("MotorCredito.Lambda.ProcessadorProposta")]
+    [InlineData("MotorCredito.Lambda.DespachanteNotificacao")]
+    [InlineData("MotorCredito.Lambda.ConsultaProposta")]
+    public void Deve_ter_propriedades_de_Lambda_Quando_projeto_e_Lambda(string nomeProjeto)
+    {
+        var projeto = EncontrarProjeto(nomeProjeto);
+        var documento = Repositorio.CarregarProjeto(projeto);
+
+        documento.Descendants("AWSProjectType").Single().Value.ShouldBe("Lambda");
+        documento.Descendants("GenerateRuntimeConfigurationFiles").Single().Value.ShouldBe("true");
+        documento.Descendants("CopyLocalLockFileAssemblies").Single().Value.ShouldBe("true");
+    }
+
+    // Spec 01 - cobre RN-06
+    [Theory]
+    [InlineData("MotorCredito.Lambda.MotorRegrasScore")]
+    [InlineData("MotorCredito.Lambda.ProcessadorProposta")]
+    [InlineData("MotorCredito.Lambda.DespachanteNotificacao")]
+    [InlineData("MotorCredito.Lambda.ConsultaProposta")]
+    public void Deve_ter_runtime_dotnet10_e_handler_esperado_Quando_defaults_da_Lambda_e_lido(string nomeProjeto)
+    {
+        var projeto = EncontrarProjeto(nomeProjeto);
+        var diretorio = Path.GetDirectoryName(projeto);
+        diretorio.ShouldNotBeNull();
+        var defaults = JsonDocument.Parse(File.ReadAllText(
+            Path.Combine(diretorio, "aws-lambda-tools-defaults.json")));
+
+        defaults.RootElement.GetProperty("function-runtime").GetString().ShouldBe("dotnet10");
+        defaults.RootElement.GetProperty("framework").GetString().ShouldBe("net10.0");
+        defaults.RootElement.GetProperty("configuration").GetString().ShouldBe("Release");
+        defaults.RootElement.GetProperty("function-handler").GetString().ShouldBe(
+            $"{nomeProjeto}::{nomeProjeto}.Function::FunctionHandler");
+    }
+
+    private static string EncontrarProjeto(string nomeProjeto)
+    {
+        return Repositorio.ListarProjetos()
+            .Single(caminho => Path.GetFileNameWithoutExtension(caminho) == nomeProjeto);
+    }
+}
+
+===== tests/MotorCredito.Arquitetura.Tests/MotorCredito.Arquitetura.Tests.csproj =====
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="Shouldly" />
+    <PackageReference Include="coverlet.collector" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+</Project>
+===== tests/MotorCredito.Arquitetura.Tests/PacotesProibidos.cs =====
+namespace MotorCredito.Arquitetura.Tests;
+
+internal static class PacotesProibidos
+{
+    public static IReadOnlyList<string> Lista { get; } =
+    [
+        "FluentAssertions",
+        "Moq",
+        "Newtonsoft.Json",
+        "Amazon.Lambda.Annotations"
+    ];
+}
+
+===== tests/MotorCredito.Arquitetura.Tests/PacotesTests.cs =====
+using System.Xml.Linq;
+using Shouldly;
+
+namespace MotorCredito.Arquitetura.Tests;
+
+[Trait("Category", "Arquitetura")]
+public sealed class PacotesTests
+{
+    // Spec 01 - cobre RN-09
+    [Fact]
+    public void Deve_nao_usar_pacote_proibido_Quando_qualquer_projeto_ou_props_e_lido()
+    {
+        foreach (var caminho in Repositorio.ListarProjetos())
+        {
+            var documento = Repositorio.CarregarProjeto(caminho);
+            var pacotes = documento.Descendants()
+                .Where(elemento => elemento.Name.LocalName is "PackageReference" or "PackageVersion")
+                .Select(elemento => elemento.Attribute("Include")?.Value)
+                .Where(nome => nome is not null)
+                .ToArray();
+
+            pacotes.ShouldNotContain(nome => PacotesProibidos.Lista.Contains(nome, StringComparer.OrdinalIgnoreCase));
+        }
+
+        var raiz = Repositorio.LocalizarRaiz();
+        var props = XDocument.Load(Path.Combine(raiz.FullName, "Directory.Packages.props"));
+        var pacotesDosProps = props.Descendants("PackageVersion")
+            .Select(pacote => pacote.Attribute("Include")?.Value)
+            .Where(nome => nome is not null)
+            .ToArray();
+
+        pacotesDosProps.ShouldNotContain(nome => PacotesProibidos.Lista.Contains(nome, StringComparer.OrdinalIgnoreCase));
+    }
+
+    // Spec 01 - cobre RN-04
+    [Fact]
+    public void Deve_nao_informar_versao_Quando_csproj_referencia_pacote()
+    {
+        foreach (var caminho in Repositorio.ListarProjetos())
+        {
+            var documento = Repositorio.CarregarProjeto(caminho);
+            foreach (var referencia in documento.Descendants("PackageReference"))
+                referencia.Attribute("Version").ShouldBeNull();
+        }
+    }
+
+    // Spec 01 - cobre RN-04
+    [Fact]
+    public void Deve_ter_versao_central_Quando_pacote_e_referenciado()
+    {
+        var raiz = Repositorio.LocalizarRaiz();
+        var props = XDocument.Load(Path.Combine(raiz.FullName, "Directory.Packages.props"));
+        var centralizados = props.Descendants("PackageVersion")
+            .Select(pacote => pacote.Attribute("Include")?.Value)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var caminho in Repositorio.ListarProjetos())
+        {
+            var documento = Repositorio.CarregarProjeto(caminho);
+            foreach (var referencia in documento.Descendants("PackageReference"))
+            {
+                var nome = referencia.Attribute("Include")?.Value;
+                nome.ShouldNotBeNull();
+                centralizados.ShouldContain(nome);
+            }
+        }
+    }
+}
+
+===== tests/MotorCredito.Arquitetura.Tests/PropriedadesComunsTests.cs =====
+using Shouldly;
+
+namespace MotorCredito.Arquitetura.Tests;
+
+[Trait("Category", "Arquitetura")]
+public sealed class PropriedadesComunsTests
+{
+    // Spec 01 - cobre RN-03
+    [Fact]
+    public void Deve_nao_redefinir_propriedades_comuns_Quando_csproj_e_lido()
+    {
+        var propriedades = new[] { "TargetFramework", "Nullable", "ImplicitUsings", "TreatWarningsAsErrors" };
+
+        foreach (var caminho in Repositorio.ListarProjetos())
+        {
+            var documento = Repositorio.CarregarProjeto(caminho);
+            foreach (var propriedade in propriedades)
+                documento.Descendants(propriedade).ShouldBeEmpty();
+        }
+    }
+}
+
+===== tests/MotorCredito.Arquitetura.Tests/ReferenciasEntreProjetosTests.cs =====
+using System.Xml.Linq;
+using Shouldly;
+
+namespace MotorCredito.Arquitetura.Tests;
+
+[Trait("Category", "Arquitetura")]
+public sealed class ReferenciasEntreProjetosTests
+{
+    // Spec 01 - cobre RN-05
+    [Fact]
+    public void Deve_nao_referenciar_nenhum_projeto_nem_pacote_Quando_projeto_e_Dominio()
+    {
+        var projeto = EncontrarProjeto("MotorCredito.Dominio");
+        var documento = Repositorio.CarregarProjeto(projeto);
+
+        documento.Descendants("ProjectReference").ShouldBeEmpty();
+        documento.Descendants("PackageReference").ShouldBeEmpty();
+    }
+
+    // Spec 01 - cobre RN-05
+    [Fact]
+    public void Deve_referenciar_apenas_Dominio_Quando_projeto_e_Infraestrutura()
+    {
+        var projeto = EncontrarProjeto("MotorCredito.Infraestrutura");
+        var documento = Repositorio.CarregarProjeto(projeto);
+        var referencias = documento.ReferenceNames("ProjectReference");
+
+        referencias.ShouldBe(["MotorCredito.Dominio"]);
+    }
+
+    // Spec 01 - cobre RN-05
+    [Fact]
+    public void Deve_referenciar_apenas_Dominio_Quando_projeto_e_MotorRegrasScore()
+    {
+        var projeto = EncontrarProjeto("MotorCredito.Lambda.MotorRegrasScore");
+        var documento = Repositorio.CarregarProjeto(projeto);
+        var referencias = documento.ReferenceNames("ProjectReference");
+
+        referencias.ShouldBe(["MotorCredito.Dominio"]);
+    }
+
+    // Spec 01 - cobre RN-05
+    [Theory]
+    [InlineData("MotorCredito.Lambda.MotorRegrasScore")]
+    [InlineData("MotorCredito.Lambda.ProcessadorProposta")]
+    [InlineData("MotorCredito.Lambda.DespachanteNotificacao")]
+    [InlineData("MotorCredito.Lambda.ConsultaProposta")]
+    public void Deve_nao_referenciar_outra_Lambda_Quando_projeto_e_Lambda(string nomeProjeto)
+    {
+        var projeto = EncontrarProjeto(nomeProjeto);
+        var documento = Repositorio.CarregarProjeto(projeto);
+        var referencias = documento.Descendants("ProjectReference")
+            .Select(referencia => referencia.Attribute("Include")?.Value)
+            .Where(caminho => caminho is not null)
+            .Select(caminho => Path.GetFileNameWithoutExtension(caminho!.Replace('\\', '/')))
+            .ToArray();
+
+        referencias.ShouldNotContain(caminho => caminho.StartsWith("MotorCredito.Lambda.", StringComparison.Ordinal));
+        referencias.ShouldContain("MotorCredito.Dominio");
+    }
+
+    private static string EncontrarProjeto(string nomeProjeto)
+    {
+        return Repositorio.ListarProjetos()
+            .Single(caminho => Path.GetFileNameWithoutExtension(caminho) == nomeProjeto);
+    }
+}
+
+internal static class XmlExtensions
+{
+    public static string[] ReferenceNames(this XDocument documento, string elemento)
+    {
+        return documento.Descendants(elemento)
+            .Select(referencia => referencia.Attribute("Include")?.Value)
+            .Where(caminho => caminho is not null)
+            .Select(caminho => NomeProjeto(caminho!))
+            .ToArray();
+    }
+
+    private static string NomeProjeto(string caminho)
+    {
+        var separado = caminho.Replace('\\', '/');
+        return Path.GetFileNameWithoutExtension(separado);
+    }
+}
+
+===== tests/MotorCredito.Arquitetura.Tests/Repositorio.cs =====
+using System.Xml.Linq;
+
+namespace MotorCredito.Arquitetura.Tests;
+
+internal static class Repositorio
+{
+    public static DirectoryInfo LocalizarRaiz()
+    {
+        var diretorio = new DirectoryInfo(AppContext.BaseDirectory);
+
+        while (diretorio is not null)
+        {
+            if (File.Exists(Path.Combine(diretorio.FullName, "MotorAnaliseCredito.slnx")))
+                return diretorio;
+
+            diretorio = diretorio.Parent;
+        }
+
+        throw new InvalidOperationException(
+            "Não foi possível localizar MotorAnaliseCredito.slnx subindo a partir de AppContext.BaseDirectory.");
+    }
+
+    public static IReadOnlyList<string> ListarProjetos()
+    {
+        var raiz = LocalizarRaiz();
+
+        return Directory.EnumerateFiles(raiz.FullName, "*.csproj", SearchOption.AllDirectories)
+            .Where(caminho => !caminho.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}")
+                && !caminho.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}"))
+            .ToArray();
+    }
+
+    public static XDocument CarregarProjeto(string caminho)
+    {
+        return XDocument.Load(caminho, LoadOptions.PreserveWhitespace);
+    }
+}
+
+===== tests/MotorCredito.Arquitetura.Tests/SolutionTests.cs =====
+using System.Xml.Linq;
+using Shouldly;
+
+namespace MotorCredito.Arquitetura.Tests;
+
+[Trait("Category", "Arquitetura")]
+public sealed class SolutionTests
+{
+    // Spec 01 - cobre RN-01, RN-05, CA-04
+    [Fact]
+    public void Deve_conter_todos_os_projetos_de_src_e_tests_Quando_solution_e_lida()
+    {
+        var raiz = Repositorio.LocalizarRaiz();
+        var solution = XDocument.Load(Path.Combine(raiz.FullName, "MotorAnaliseCredito.slnx"));
+        var projetos = solution.Descendants("Project")
+            .Select(projeto => projeto.Attribute("Path")?.Value)
+            .Where(caminho => caminho is not null)
+            .Select(caminho => caminho!.Replace('\\', Path.DirectorySeparatorChar).Replace('/', Path.DirectorySeparatorChar))
+            .ToArray();
+
+        projetos.Length.ShouldBe(11);
+        projetos.Count(caminho => caminho.StartsWith($"src{Path.DirectorySeparatorChar}", StringComparison.Ordinal)).ShouldBe(6);
+        projetos.Count(caminho => caminho.StartsWith($"tests{Path.DirectorySeparatorChar}", StringComparison.Ordinal)).ShouldBe(5);
+
+        var projetosDaSolution = projetos
+            .Select(caminho => Path.GetFullPath(Path.Combine(raiz.FullName, caminho)))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var projetosDoDisco = Repositorio.ListarProjetos()
+            .Where(caminho =>
+                caminho.StartsWith(Path.Combine(raiz.FullName, "src") + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+                || caminho.StartsWith(Path.Combine(raiz.FullName, "tests") + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            .Select(caminho => Path.GetFullPath(caminho))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        projetosDaSolution.SetEquals(projetosDoDisco).ShouldBeTrue();
+    }
+}
+
+===== tests/MotorCredito.Lambda.ConsultaProposta.Tests/FunctionTests.cs =====
+using Amazon.Lambda.Core;
+using NSubstitute;
+using Shouldly;
+
+namespace MotorCredito.Lambda.ConsultaProposta.Tests;
+
+public sealed class FunctionTests
+{
+    // Spec 01 - cobre RN-06, CA-02
+    [Fact]
+    public void Deve_retornar_identificacao_Quando_handler_esqueleto_e_invocado()
+    {
+        var function = new Function();
+        var contexto = Substitute.For<ILambdaContext>();
+
+        var resultado = function.FunctionHandler("entrada", contexto);
+
+        resultado.ShouldBe("consulta-proposta: esqueleto");
+    }
+}
+
+===== tests/MotorCredito.Lambda.ConsultaProposta.Tests/MotorCredito.Lambda.ConsultaProposta.Tests.csproj =====
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="NSubstitute" />
+    <PackageReference Include="Shouldly" />
+    <PackageReference Include="coverlet.collector" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\MotorCredito.Lambda.ConsultaProposta\MotorCredito.Lambda.ConsultaProposta.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+</Project>
+===== tests/MotorCredito.Lambda.DespachanteNotificacao.Tests/FunctionTests.cs =====
+using Amazon.Lambda.Core;
+using NSubstitute;
+using Shouldly;
+
+namespace MotorCredito.Lambda.DespachanteNotificacao.Tests;
+
+public sealed class FunctionTests
+{
+    // Spec 01 - cobre RN-06, CA-02
+    [Fact]
+    public void Deve_retornar_identificacao_Quando_handler_esqueleto_e_invocado()
+    {
+        var function = new Function();
+        var contexto = Substitute.For<ILambdaContext>();
+
+        var resultado = function.FunctionHandler("entrada", contexto);
+
+        resultado.ShouldBe("despachante-notificacao: esqueleto");
+    }
+}
+
+===== tests/MotorCredito.Lambda.DespachanteNotificacao.Tests/MotorCredito.Lambda.DespachanteNotificacao.Tests.csproj =====
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="NSubstitute" />
+    <PackageReference Include="Shouldly" />
+    <PackageReference Include="coverlet.collector" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\MotorCredito.Lambda.DespachanteNotificacao\MotorCredito.Lambda.DespachanteNotificacao.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+</Project>
+===== tests/MotorCredito.Lambda.MotorRegrasScore.Tests/FunctionTests.cs =====
+using Amazon.Lambda.Core;
+using NSubstitute;
+using Shouldly;
+
+namespace MotorCredito.Lambda.MotorRegrasScore.Tests;
+
+public sealed class FunctionTests
+{
+    // Spec 01 - cobre RN-06, CA-02
+    [Fact]
+    public void Deve_retornar_identificacao_Quando_handler_esqueleto_e_invocado()
+    {
+        var function = new Function();
+        var contexto = Substitute.For<ILambdaContext>();
+
+        var resultado = function.FunctionHandler("entrada", contexto);
+
+        resultado.ShouldBe("motor-regras-score: esqueleto");
+    }
+}
+
+===== tests/MotorCredito.Lambda.MotorRegrasScore.Tests/MotorCredito.Lambda.MotorRegrasScore.Tests.csproj =====
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="NSubstitute" />
+    <PackageReference Include="Shouldly" />
+    <PackageReference Include="coverlet.collector" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\MotorCredito.Lambda.MotorRegrasScore\MotorCredito.Lambda.MotorRegrasScore.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+</Project>
+===== tests/MotorCredito.Lambda.ProcessadorProposta.Tests/FunctionTests.cs =====
+using Amazon.Lambda.Core;
+using NSubstitute;
+using Shouldly;
+
+namespace MotorCredito.Lambda.ProcessadorProposta.Tests;
+
+public sealed class FunctionTests
+{
+    // Spec 01 - cobre RN-06, CA-02
+    [Fact]
+    public void Deve_retornar_identificacao_Quando_handler_esqueleto_e_invocado()
+    {
+        var function = new Function();
+        var contexto = Substitute.For<ILambdaContext>();
+
+        var resultado = function.FunctionHandler("entrada", contexto);
+
+        resultado.ShouldBe("processador-proposta: esqueleto");
+    }
+}
+
+===== tests/MotorCredito.Lambda.ProcessadorProposta.Tests/MotorCredito.Lambda.ProcessadorProposta.Tests.csproj =====
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="NSubstitute" />
+    <PackageReference Include="Shouldly" />
+    <PackageReference Include="coverlet.collector" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\MotorCredito.Lambda.ProcessadorProposta\MotorCredito.Lambda.ProcessadorProposta.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+</Project>

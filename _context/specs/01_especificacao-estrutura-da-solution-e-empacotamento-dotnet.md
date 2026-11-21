@@ -1,6 +1,6 @@
 # Spec 01 — Estrutura da Solution e Empacotamento .NET
 
-- **Status:** Aprovada
+- **Status:** Implementada
 - **Objetivo:** criar a solution, os projetos .NET e as configurações compartilhadas, deixar as quatro Lambdas compilando com um handler esqueleto e gerar um pacote `.zip` por Lambda com um único script. As regras de arquitetura da spec 00 passam a ser verificadas por testes automatizados.
 - **Depende de:** [Spec 00](./00_especificacao-constituicao-e-convencoes.md), [ADR 0002](../../docs/adr/0002-runtime-dotnet10-gerenciado-vs-native-aot.md)
 
