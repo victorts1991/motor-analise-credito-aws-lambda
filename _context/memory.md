@@ -9,7 +9,7 @@
 | Spec | Título | Status |
 | --- | --- | --- |
 | 00 | Constituição e convenções | Aprovada |
-| 01 | Estrutura da solution e empacotamento .NET | Rascunho |
+| 01 | Estrutura da solution e empacotamento .NET | Aprovada |
 | 02 | Contratos de eventos e modelo de dados | Rascunho |
 | 03 | Ambiente Docker e LocalStack | Rascunho |
 | 04 | Idempotência, resiliência e tratamento de falhas | Rascunho |
@@ -22,7 +22,7 @@
 
 ## Próximo passo
 
-Escrever a spec 01 (estrutura da solution e empacotamento .NET). Ela será a primeira spec implementada pelo Copilot.
+Implementar a spec 01 com o prompt `/implementar-especificacao`, na branch `spec/01-estrutura-solution`.
 
 ## Decisões vigentes
 

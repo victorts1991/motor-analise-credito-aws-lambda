@@ -41,6 +41,13 @@ public void Deve_enquadrar_risco_alto_Quando_comprometimento_de_renda_passa_do_l
 - Cada classe de teste sobe seus próprios containers (ou compartilha via *fixture* do xUnit) e usa um nome de banco único, para os testes não interferirem entre si.
 - Não dependem do `docker compose` do projeto nem do LocalStack.
 
+## Testes de arquitetura
+
+- Marcados com `[Trait("Category", "Arquitetura")]`.
+- Ficam no projeto `MotorCredito.Arquitetura.Tests`.
+- São a única exceção à regra de não ler arquivos: leem o `.slnx`, os `.csproj` e os `.props` do repositório para verificar as regras de referência e os pacotes proibidos da spec 00.
+- Localizam a raiz do repositório subindo a partir de `AppContext.BaseDirectory` até encontrar o `MotorAnaliseCredito.slnx`.
+
 ## Dados de teste
 
 - Nunca use CPF real. Use valores claramente fictícios, como `12345678901`.

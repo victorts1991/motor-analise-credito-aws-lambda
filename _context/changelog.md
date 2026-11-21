@@ -7,6 +7,7 @@ Histórico de mudanças do projeto, da mais recente para a mais antiga. Formato 
 ### Adicionado
 
 - Spec 00 — constituição e convenções do projeto, incluindo o modelo de spec.
+- Spec 01 — estrutura da solution e empacotamento .NET (aprovada, ainda não implementada).
 - `_context/memory.md` e `_context/changelog.md`.
 - ADRs 0001 a 0004.
 - Arquivos do Copilot em `.github/`: instruções globais, instruções para `src/` e `tests/` e o prompt `implementar-especificacao`.
@@ -18,3 +19,5 @@ Histórico de mudanças do projeto, da mais recente para a mais antiga. Formato 
 - Specs movidas para `_context/specs/` e renumeradas de `00` a `10`.
 - Specs 01 e 02 trocadas de ordem: a estrutura da solution vem antes dos contratos, porque os contratos são implementados dentro dos projetos que ela cria.
 - Ciclo de vida da proposta no README: removido o estado `RECEBIDA`.
+- Spec 00: verificações manuais (`VM-NN`) e testes de arquitetura (`Category=Arquitetura`) passam a fazer parte da rastreabilidade de testes.
+- Instruções de testes do Copilot: regras para os testes de arquitetura.

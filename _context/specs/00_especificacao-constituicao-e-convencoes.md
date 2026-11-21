@@ -18,7 +18,7 @@ Nesta spec, as regras são **regras do projeto**: valem para todas as outras spe
 - **RN-06 — Dados sensíveis protegidos.** O CPF nunca aparece completo em log, mensagem de erro ou resposta HTTP. A regra de mascaramento é definida na spec 05.
 - **RN-07 — Configuração por variável de ambiente.** Endpoints, nomes de tópicos, nomes de funções e credenciais vêm de variáveis de ambiente. Nada disso fica fixo no código. O arquivo `.env` nunca é commitado; o `.env.example` documenta todas as variáveis.
 - **RN-08 — Execução 100% local.** O projeto roda com `docker compose` na máquina do desenvolvedor. Não existe pipeline de CI/CD nem deploy em conta AWS.
-- **RN-09 — Rastreabilidade de testes.** Todo `RN`, `CA` e `EC` de uma spec é coberto por pelo menos um teste, e a seção **Testes** da spec indica qual teste cobre cada item.
+- **RN-09 — Rastreabilidade de testes.** Todo `RN`, `CA` e `EC` de uma spec é coberto por pelo menos um teste automatizado, e a seção **Testes** da spec indica qual teste cobre cada item. Quando o item depende de ferramenta externa ou do ambiente (scripts, Docker, LocalStack), ele pode ser coberto por uma **verificação manual**, descrita passo a passo na seção **Testes**, com o comando e o resultado esperado.
 - **RN-10 — Decisões arquiteturais viram ADR.** Uma decisão que muda a arquitetura gera uma nova ADR em `docs/adr/`. ADRs aceitas não são editadas; uma decisão nova substitui a antiga com o status `Substituída pela ADR NNNN`.
 
 ---
@@ -72,6 +72,7 @@ A spec só está pronta quando **todos** os itens abaixo forem verdadeiros:
 | `src/MotorCredito.Infraestrutura/` | Implementações de MongoDB, Kafka e cliente Lambda |
 | `src/MotorCredito.Lambda.<Nome>/` | Uma pasta por Lambda, contendo só o handler e a composição das dependências |
 | `tests/MotorCredito.<Projeto>.Tests/` | Um projeto de teste por projeto de `src/` que tenha lógica |
+| `tests/MotorCredito.Arquitetura.Tests/` | Testes de arquitetura (regras de referência e pacotes proibidos) |
 | `infra/localstack/init/ready.d/` | Scripts de criação de recursos no LocalStack |
 | `scripts/` | Scripts de apoio (empacotamento, envio de eventos de teste) |
 
@@ -83,6 +84,7 @@ MotorCredito.Infraestrutura          →  Dominio
 MotorCredito.Lambda.MotorRegrasScore →  Dominio            (nunca Infraestrutura)
 MotorCredito.Lambda.<demais>         →  Dominio, Infraestrutura
 MotorCredito.<Projeto>.Tests         →  o projeto testado
+MotorCredito.Arquitetura.Tests       →  nenhum projeto (lê os arquivos do repositório)
 ```
 
 Uma Lambda **nunca** referencia outra Lambda.
@@ -156,6 +158,7 @@ Configurações obrigatórias em todos os `.csproj` (preferencialmente centraliz
 - Padrão **Arrange / Act / Assert**, com as três partes separadas por uma linha em branco.
 - Nome do teste: `Deve_<resultado>_Quando_<condicao>`. Exemplo: `Deve_retornar_404_Quando_proposta_nao_existe`.
 - Testes de integração marcados com `[Trait("Category", "Integracao")]`, para o filtro do README funcionar.
+- Testes de arquitetura marcados com `[Trait("Category", "Arquitetura")]`. Eles verificam as regras de referência entre projetos e a lista de pacotes proibidos lendo os arquivos `.slnx`, `.csproj` e `.props` do repositório, e são os únicos testes automatizados que podem ler arquivos do repositório.
 - Um teste verifica um comportamento. Casos com a mesma lógica e dados diferentes usam `[Theory]` com `[InlineData]`.
 
 ### 4.6 Git
@@ -189,7 +192,7 @@ Toda spec de `01` a `10` segue este modelo, com estes títulos e nesta ordem. Um
 <contratos, assinaturas, nomes de classes e sequência de passos; sem o corpo dos métodos>
 
 ## 5. Testes
-| Teste | Tipo (unitário / integração) | Cobre |
+| Teste | Tipo (unitário / integração / arquitetura / manual) | Cobre |
 | `Deve_..._Quando_...` | unitário | RN-01, CA-02 |
 
 ## 6. Critérios de Aceitação (CA)
@@ -206,6 +209,7 @@ Regras do modelo:
 
 - Os identificadores (`RN-01`, `CA-01`, `EC-01`) recomeçam em cada spec e nunca são renumerados depois que a spec é aprovada. Item removido fica riscado, com o motivo.
 - A seção **4. Implementação Detalhada** descreve o *quê* e o *onde*, não o código pronto.
+- Verificações manuais recebem identificadores próprios (`VM-01`, `VM-02`...) e aparecem na tabela da seção **5. Testes** com o tipo `manual`.
 
 ### 4.8 `memory.md` e `changelog.md`
 
