@@ -52,7 +52,7 @@ flowchart TD
     L4 --> M2
 ```
 
-**Ciclo de vida da proposta:** `RECEBIDA → EM_PROCESSAMENTO → APROVADA | REPROVADA` (+ `publicadoEm` quando o evento de decisão foi confirmado no Kafka).
+**Ciclo de vida da proposta:** `EM_PROCESSAMENTO → APROVADA | REPROVADA` (+ `publicadoEm` quando o evento de decisão foi confirmado no Kafka).
 
 ---
 
@@ -131,7 +131,7 @@ Resumo das decisões. Os detalhes e trade-offs ficam registrados em [`docs/adr/`
 - [.NET 10 SDK](https://dotnet.microsoft.com/download)
 - Amazon.Lambda.Tools: `dotnet tool install -g Amazon.Lambda.Tools`
 - [Docker](https://www.docker.com/) e Docker Compose
-- **Conta no LocalStack + auth token.** Desde março de 2026 a imagem do LocalStack exige `LOCALSTACK_AUTH_TOKEN`. O plano gratuito (Hobby) é restrito a uso não comercial; confirme com o time se o uso cabe nele ou se a empresa tem licença.
+- **Conta no LocalStack + auth token.** Desde março de 2026 a imagem do LocalStack exige `LOCALSTACK_AUTH_TOKEN`. O plano gratuito (Hobby) é restrito a uso não comercial; verifique se o seu uso se enquadra nele.
 - Opcional: [`awslocal`](https://github.com/localstack/awscli-local) para inspecionar os recursos
 
 ---
