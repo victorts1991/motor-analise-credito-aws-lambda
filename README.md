@@ -176,6 +176,7 @@ awslocal lambda list-event-source-mappings --query "EventSourceMappings[].[Funct
 
 | Camada | Escopo | Comando |
 | --- | --- | --- |
+| **Arquitetura** | Regras de referência entre projetos e pacotes proibidos | `dotnet test --filter "Category=Arquitetura"` |
 | **Unitários** | Regras de cada Lambda isoladas, com SDK da AWS, Kafka e MongoDB mockados | `dotnet test --filter "Category!=Integracao"` |
 | **Integração** | Repositórios e idempotência contra MongoDB/Kafka reais via Testcontainers | `dotnet test --filter "Category=Integracao"` |
 | **Cobertura** | Relatório consolidado | `dotnet test --collect:"XPlat Code Coverage"` |

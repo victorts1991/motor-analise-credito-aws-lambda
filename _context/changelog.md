@@ -6,8 +6,10 @@ Histórico de mudanças do projeto, da mais recente para a mais antiga. Formato 
 
 ### Adicionado
 
+- Spec 01 implementada: solution `.slnx`, projetos de domínio, infraestrutura, quatro Lambdas e projetos de testes.
+- Configuração `.NET 10`, pacotes centralizados e script de empacotamento das quatro Lambdas.
+- Linha de testes de arquitetura na seção 10 do README.
 - Spec 00 — constituição e convenções do projeto, incluindo o modelo de spec.
-- Spec 01 — estrutura da solution e empacotamento .NET (aprovada, ainda não implementada).
 - `_context/memory.md` e `_context/changelog.md`.
 - ADRs 0001 a 0004.
 - Arquivos do Copilot em `.github/`: instruções globais, instruções para `src/` e `tests/` e o prompt `implementar-especificacao`.

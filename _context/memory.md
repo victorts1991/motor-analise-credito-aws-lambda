@@ -8,8 +8,8 @@
 
 | Spec | Título | Status |
 | --- | --- | --- |
-| 00 | Constituição e convenções | Aprovada |
-| 01 | Estrutura da solution e empacotamento .NET | Aprovada |
+| 00 | Constituição e convenções | Implementada |
+| 01 | Estrutura da solution e empacotamento .NET | Implementada |
 | 02 | Contratos de eventos e modelo de dados | Rascunho |
 | 03 | Ambiente Docker e LocalStack | Rascunho |
 | 04 | Idempotência, resiliência e tratamento de falhas | Rascunho |
@@ -22,7 +22,7 @@
 
 ## Próximo passo
 
-Implementar a spec 01 com o prompt `/implementar-especificacao`, na branch `spec/01-estrutura-solution`.
+Implementar a spec 02 — contratos de eventos e modelo de dados.
 
 ## Decisões vigentes
 
@@ -33,15 +33,17 @@ Implementar a spec 01 com o prompt `/implementar-especificacao`, na branch `spec
 
 ## Ferramentas validadas
 
-- .NET SDK 10.0.404 (o projeto fixa o SDK 10 via `global.json`, mesmo com outros SDKs instalados).
-- Amazon.Lambda.Tools 7.0.0, AWS CLI 2.19.4, awslocal 0.23.0, Docker 28.0.4.
+- .NET SDK 10.0.404 e Amazon.Lambda.Tools 7.0.0.
+- AWS CLI 2.19.4, `awslocal` 0.23.0, Docker 28.0.4.
+- `dotnet build` sem erros nem warnings; `dotnet test` passa com 24 testes.
+- LocalStack 2026.10.8 no plano Hobby: as quatro Lambdas `dotnet10` (`x86_64`) foram criadas com os ZIPs de `dist/` e responderam o texto de esqueleto.
 
 ## Armadilhas descobertas
 
 - O `awslocal` foi descontinuado em favor do `lstk aws`; ainda funciona.
+- A solution usa o formato `.slnx`, com pastas virtuais `src` e `tests`.
 
 ## Pendências
 
-- Confirmar se o plano Hobby (não comercial) do LocalStack atende ao uso da POC.
-- Validar o ESM com Kafka no LocalStack (spec 03).
+- Lambda com `dotnet10` confirmado no Hobby; falta confirmar o ESM com Kafka (spec 03).
 - Decidir entre `awslocal` e `lstk` nos scripts (spec 03).

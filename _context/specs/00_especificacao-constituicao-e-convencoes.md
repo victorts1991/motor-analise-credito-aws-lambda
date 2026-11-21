@@ -1,6 +1,6 @@
 # Spec 00 — Constituição e Convenções do Projeto
 
-- **Status:** Aprovada
+- **Status:** Implementada
 - **Objetivo:** definir as regras que valem para todo o projeto: princípios, fluxo de trabalho com specs, convenções de código, stack permitida, modelo de spec e definição de pronto. Toda outra spec e todo código seguem este documento.
 - **Depende de:** [README](../../README.md), [ADR 0001](../../docs/adr/0001-invocacao-sincrona-entre-lambdas.md), [ADR 0002](../../docs/adr/0002-runtime-dotnet10-gerenciado-vs-native-aot.md), [ADR 0003](../../docs/adr/0003-emulador-local-localstack.md), [ADR 0004](../../docs/adr/0004-idempotencia-e-publicacao-no-kafka.md)
 
