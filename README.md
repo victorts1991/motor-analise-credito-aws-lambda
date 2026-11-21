@@ -1,199 +1,202 @@
-# ⚡ Credit Proposal Serverless Stream & Automated Risk Engine
+# ⚡ Motor de Análise de Crédito — Serverless Event-Driven com AWS Lambda (.NET)
 
-[![Platform](https://img.shields.io/badge/Platform-Node.js%2020.x%20%7C%20TypeScript-blue)](https://nodejs.org/)
-[![Runtime](https://img.shields.io/badge/Runtime-AWS%20Lambda-orange)](https://aws.amazon.com/lambda/)
+[![.NET](https://img.shields.io/badge/.NET-10%20LTS%20%7C%20C%23-512BD4)](https://dotnet.microsoft.com/)
+[![Runtime](https://img.shields.io/badge/Runtime-AWS%20Lambda%20dotnet10-orange)](https://docs.aws.amazon.com/lambda/latest/dg/lambda-csharp.html)
 [![Broker](https://img.shields.io/badge/Broker-Apache%20Kafka%20(ESM)-red)](https://kafka.apache.org/)
 [![Database](https://img.shields.io/badge/Database-MongoDB-green)](https://www.mongodb.com/)
-[![Local](https://img.shields.io/badge/LocalStack-100%25%20Local-black)](https://localstack.cloud/)
+[![Local](https://img.shields.io/badge/Ambiente-LocalStack-black)](https://localstack.cloud/)
+[![Tests](https://img.shields.io/badge/Testes-xUnit-blueviolet)](https://xunit.net/)
+[![SDD](https://img.shields.io/badge/Dev-Spec--Driven%20%2B%20Copilot-lightgrey)](./_context)
 
 ---
 
-## 1. Mini Resumo
+## 1. Resumo
 
-Solução de referência de arquitetura serverless orientada a eventos (**Event-Driven Architecture - EDA**) executada **100% em ambiente local** (custo zero). O projeto simula uma esteira transacional de crédito composta por funções **AWS Lambda (Node.js 20 / TypeScript)** orquestradas sobre **LocalStack**, consumindo e produzindo eventos no **Apache Kafka** via **Event Source Mapping (ESM)**, persistência no **MongoDB**, interface visual para mensageria e suíte de testes unitários com **Vitest**.
-
----
-
-## 2. Objetivo e Qual Problema Resolve
-
-Em esteiras transacionais de crédito com alta concorrência de requisições, as equipes de engenharia enfrentam desafios operacionais clássicos:
-
-1. **Gargalo de I/O em Motores de Risco:** Motores de decisão financeira são computacionalmente determinísticos, mas frequentemente acoplados diretamente ao banco de dados e à mensageria, criando contenção de pool de conexões e atrasando a esteira.
-2. **Esgotamento de Recursos em Serverless (Connection Storm):** Quando o tráfego do Kafka aumenta e a AWS instancia dezenas de instâncias concorrentes de Lambdas, a abertura desordenada de conexões com o MongoDB colapsa a camada de dados.
-3. **Semântica de Entrega *At-Least-Once* do Kafka:** Falhas transitórias geram reentrega de eventos idênticos. Sem mecanismos estritos de idempotência na Lambda, a mesma proposta de crédito seria recalculada e reauditada, gerando duplicidade.
-
-### A Solução Proposta:
-- **Segregação de Responsabilidade (I/O vs. Domínio Puro):** A função de entrada orquestra I/O (Kafka + MongoDB) e invoca de forma síncrona ponto a ponto (`RequestResponse`) o motor de risco puro, que roda isolado sem dependência de rede externa.
-- **Connection Management para Serverless:** Singleton controlado de `MongoClient` fora do *handler* da Lambda com pool enxuto (`maxPoolSize: 5`), viabilizando o reaproveitamento de conexões ativas entre *warm starts*.
-- **Idempotência no Consumo Kafka:** Garantia de consistência no MongoDB através de operações de escrita atômica com `$setOnInsert`, impedindo duplicidade no processamento.
-- **Observabilidade Visual e Consulta Rápida:** Interface web para inspecionar tópicos do Kafka em tempo real e uma Lambda HTTP (`consulta-proposta`) para auditar o MongoDB direto pelo browser.
+Arquitetura de referência **serverless orientada a eventos** (EDA) executada **localmente**, sem custo de nuvem. O projeto simula uma esteira transacional de análise de crédito composta por quatro funções **AWS Lambda em C# (.NET 10)**, emuladas no **LocalStack**, que consomem e produzem eventos no **Apache Kafka** via **Event Source Mapping (ESM)**, persistem no **MongoDB** e são cobertas por testes automatizados com **xUnit**.
 
 ---
 
-## 3. Visão Geral da Arquitetura
+## 2. Problema e Solução
+
+Em esteiras de crédito com alta concorrência, quatro problemas aparecem com frequência:
+
+1. **Motor de risco acoplado a I/O.** A regra de decisão é determinística, mas costuma ficar misturada com acesso a banco e mensageria, o que dificulta testar e escalar.
+2. **Connection storm em serverless.** Quando o tráfego do Kafka cresce, dezenas de instâncias concorrentes de Lambda abrindo conexões sem controle derrubam o MongoDB.
+3. **Entrega *at-least-once* do Kafka.** Falhas transitórias reentregam o mesmo evento. Sem idempotência, a mesma proposta é recalculada e auditada em duplicidade.
+4. **Escrita dupla (MongoDB + Kafka).** Se a Lambda grava a decisão no banco e falha antes de publicar no Kafka, a reentrega não pode simplesmente "pular" a proposta, senão o evento se perde.
+
+### Solução proposta
+
+- **Domínio puro isolado:** o cálculo de score roda em uma Lambda própria (`motor-regras-score`), sem dependência de rede ou banco, invocada de forma síncrona (`RequestResponse`) pela Lambda orquestradora.
+- **Gerenciamento de conexões:** `MongoClient`, `IProducer` (Confluent.Kafka) e `AmazonLambdaClient` são instâncias estáticas criadas fora do handler, reaproveitadas entre *warm starts*, com pool enxuto (`MaxConnectionPoolSize = 5`).
+- **Idempotência:** índice único por `idProposta` + upsert com `$setOnInsert`, máquina de estados explícita da proposta e marcação de publicação (`publicadoEm`) para que uma reentrega republique o evento quando a decisão já foi gravada mas não publicada.
+- **Observabilidade e consulta:** interface web para inspecionar os tópicos do Kafka e uma Lambda HTTP (`consulta-proposta`) para auditar o MongoDB direto pelo navegador.
+
+---
+
+## 3. Arquitetura
+
+```mermaid
+flowchart TD
+    UI["AKHQ (UI do Kafka) / script"] -->|publica evento| T1[["Kafka: credito.propostas.recebidas"]]
+    T1 -->|ESM - lote| L1["λ processador-proposta"]
+    L1 -->|1. upsert idempotente| M1[("MongoDB: propostas")]
+    L1 -->|2. Invoke RequestResponse| L2["λ motor-regras-score<br/>(domínio puro)"]
+    L2 -->|3. score + faixa + limite| L1
+    L1 -->|4. atualiza decisão| M1
+    L1 -->|5. publica decisão| T2[["Kafka: credito.propostas.avaliadas"]]
+    T2 -->|ESM - lote| L3["λ despachante-notificacao"]
+    L3 -->|6. trilha de auditoria idempotente| M2[("MongoDB: auditoria_propostas")]
+    C["Browser / cURL"] -->|GET ?idProposta=| L4["λ consulta-proposta<br/>(Function URL)"]
+    L4 --> M1
+    L4 --> M2
+```
+
+**Ciclo de vida da proposta:** `RECEBIDA → EM_PROCESSAMENTO → APROVADA | REPROVADA` (+ `publicadoEm` quando o evento de decisão foi confirmado no Kafka).
+
+---
+
+## 4. Componentes
+
+| Lambda | Gatilho | Evento de entrada (.NET) | Responsabilidade |
+| --- | --- | --- | --- |
+| `processador-proposta` | ESM em `credito.propostas.recebidas` | `KafkaEvent` | Decodifica o lote, registra `EM_PROCESSAMENTO` com trava de idempotência, invoca o motor via AWS SDK, grava a decisão e publica em `credito.propostas.avaliadas`. |
+| `motor-regras-score` | Invocação direta (`RequestResponse`) | DTO próprio (`AvaliacaoScoreRequest`) | Avalia comprometimento de renda vs. valor solicitado, calcula o score, enquadra a faixa de risco (`BAIXO`, `MEDIO`, `ALTO`) e define o limite. Sem I/O. |
+| `despachante-notificacao` | ESM em `credito.propostas.avaliadas` | `KafkaEvent` | Persiste uma trilha imutável e idempotente em `auditoria_propostas`. |
+| `consulta-proposta` | Lambda Function URL (HTTP GET) | `APIGatewayHttpApiV2ProxyRequest` | Recebe `idProposta` via query string, agrega proposta + auditoria e devolve JSON (404 se não existir). |
+
+As regras de negócio, contratos e critérios de aceite de cada componente estão nas especificações em [`_context/`](./_context).
+
+---
+
+## 5. Decisões Técnicas
+
+Resumo das decisões. Os detalhes e trade-offs ficam registrados em [`docs/adr/`](./docs/adr).
+
+- **Runtime gerenciado `dotnet10`** (LTS). Native AOT fica fora do escopo inicial e será avaliado depois, medindo cold start.
+- **Invocação síncrona Lambda → Lambda** é uma escolha deliberada de estudo para isolar o domínio. Em produção isso tem custo (a orquestradora fica parada aguardando) e acoplamento; a alternativa (motor como biblioteca dentro da mesma Lambda) está documentada na ADR.
+- **Chave da mensagem Kafka = `idProposta`**, garantindo ordem por proposta dentro da partição.
+- **Producer Kafka com `Flush`** antes do retorno do handler, porque o ambiente da Lambda é congelado entre invocações.
+- **Dados sensíveis:** o CPF nunca aparece em logs (mascarado), em linha com a LGPD.
+
+---
+
+## 6. Stack Tecnológica
+
+| Tecnologia | Função no ecossistema |
+| --- | --- |
+| **.NET 10 / C#** | Linguagem e runtime das Lambdas (`dotnet10`) |
+| **Amazon.Lambda.\*** | `Core`, `Serialization.SystemTextJson`, `KafkaEvents`, `APIGatewayEvents` e `Amazon.Lambda.Tools` para empacotamento |
+| **AWSSDK.Lambda** | Invocação síncrona do motor de score |
+| **Confluent.Kafka** | Producer para publicar a decisão de crédito |
+| **MongoDB.Driver** | Persistência de propostas e auditoria |
+| **LocalStack** | Emulação local de Lambda, IAM, ESM e Function URL |
+| **Apache Kafka (KRaft)** | Broker de eventos, sem ZooKeeper |
+| **AKHQ** | Interface web para tópicos, mensagens e partições |
+| **xUnit + NSubstitute + Shouldly** | Testes unitários e mocks |
+| **Testcontainers for .NET** | Testes de integração com MongoDB e Kafka reais |
+| **coverlet** | Relatório de cobertura |
+
+---
+
+## 7. Estrutura do Repositório
 
 ```text
-       [ Interface Web Kafka (AKHQ) / Script ]
-                         │
-                         │ Publica Evento
-                         ▼
-     +-----------------------------------+
-     |           Apache Kafka            |
-     |   (credito.propostas.recebidas)   |
-     +-----------------+-----------------+
-                       │
-                       │ Event Source Mapping (ESM) Batch
-                       ▼
-     +-----------------+-----------------+
-     |            LAMBDA 1               |
-     |     (processador-proposta)        |
-     +--------+-----------------+--------+
-              │                 │
-              │ (1. Idempotent) │ (2. Direct Invoke: RequestResponse)
-              ▼                 ▼
-      +-------+-------+ +-------+-----------------+
-      |    MongoDB    | |            LAMBDA 2     |
-      |  (Collection: | |    (motor-regras-score) |
-      |   propostas)  | +-------+-----------------+
-      +---------------+         │
-                                │ (3. Retorno: Score + Limite)
-                                ▼
-                        +-------+-----------------+
-                        |   LAMBDA 1 (Conclusão)  |
-                        |   - Atualiza Mongo      |
-                        |   - Publica no Kafka    |
-                        +-------+-----------------+
-                                │
-                                │ (4. Evento: credito.propostas.avaliadas)
-                                ▼
-     +-----------------------------------+
-     |           Apache Kafka            |
-     |   (credito.propostas.avaliadas)   |
-     +-----------------+-----------------+
-                       │
-                       │ Event Source Mapping (ESM) Batch
-                       ▼
-     +-----------------+-----------------+
-     |            LAMBDA 3               |
-     |    (despachante-notificacao)      |
-     +-----------------+-----------------+
-                       │
-                       │ (5. Trilha de Auditoria)
-                       ▼
-              +--------+--------+
-              |     MongoDB     |
-              |  (Collection:   |
-              | auditoria_      |
-              |  propostas)     |
-              +--------+--------+
-                       ▲
-                       │ (6. Consulta HTTP / GET)
-     +-----------------+-----------------+
-     |            LAMBDA 4               |
-     |       (consulta-proposta)         | ◄─── Browser / Postman / cURL
-     +-----------------------------------+
-
+.
+├── .github/
+│   ├── copilot-instructions.md        # regras globais para o Copilot
+│   ├── instructions/                  # instruções por tipo de arquivo
+│   └── prompts/                       # prompts reutilizáveis (ex.: implementar uma spec)
+├── _context/                          # especificações (fonte da verdade do desenvolvimento)
+├── docs/adr/                          # registros de decisão de arquitetura
+├── infra/localstack/init/ready.d/     # script que cria Lambdas, ESMs e Function URL
+├── scripts/                           # empacotamento, publicação de eventos de teste
+├── src/
+│   ├── MotorCredito.Dominio/                    # contratos, entidades e regras puras
+│   ├── MotorCredito.Infraestrutura/             # MongoDB, Kafka, cliente Lambda
+│   ├── MotorCredito.Lambda.MotorRegrasScore/    # depende só do Dominio
+│   ├── MotorCredito.Lambda.ProcessadorProposta/
+│   ├── MotorCredito.Lambda.DespachanteNotificacao/
+│   └── MotorCredito.Lambda.ConsultaProposta/
+├── tests/                             # um projeto de teste por Lambda + integração
+├── docker-compose.yml
+├── .env.example
+└── MotorAnaliseCredito.slnx
 ```
 
 ---
 
-## 4. Componentes de Arquitetura
+## 8. Pré-requisitos
 
-### Lambda 1: Processador de Proposta (`processador-proposta`)
-
-* **Trigger:** AWS Lambda Event Source Mapping (ESM) consumindo o tópico `credito.propostas.recebidas`.
-* **Papel:** Decodifica lotes Kafka, registra o estado `EM_PROCESSAMENTO` no MongoDB com trava de idempotência, invoca síncronamente a Lambda 2 via AWS SDK v3, persiste a aprovação/rejeição e publica o resultado no tópico `credito.propostas.avaliadas`.
-
-### Lambda 2: Motor de Regras de Score (`motor-regras-score`)
-
-* **Trigger:** Chamada direta síncrona ponto a ponto (`RequestResponse`).
-* **Papel:** Função determinística e isolada de banco de dados/rede. Avalia comprometimento de renda vs. valor solicitado, calcula score numérico, enquadra em faixa de risco (`BAIXO`, `MEDIO`, `ALTO`) e determina o limite liberado.
-
-### Lambda 3: Despachante de Notificação (`despachante-notificacao`)
-
-* **Trigger:** AWS Lambda Event Source Mapping (ESM) consumindo o tópico `credito.propostas.avaliadas`.
-* **Papel:** Consome a decisão final de crédito e persiste uma trilha imutável na coleção `auditoria_propostas` no MongoDB.
-
-### Lambda 4: Consulta de Proposta (`consulta-proposta`)
-
-* **Trigger:** HTTP via AWS Lambda Function URL.
-* **Papel:** Endpoint de leitura para validação manual. Recebe o `idProposta` via query param (`GET /?idProposta=PROP-1001`), busca no MongoDB os dados da proposta consolidada e o histórico de auditoria e devolve o JSON formatado.
+- [.NET 10 SDK](https://dotnet.microsoft.com/download)
+- Amazon.Lambda.Tools: `dotnet tool install -g Amazon.Lambda.Tools`
+- [Docker](https://www.docker.com/) e Docker Compose
+- **Conta no LocalStack + auth token.** Desde março de 2026 a imagem do LocalStack exige `LOCALSTACK_AUTH_TOKEN`. O plano gratuito (Hobby) é restrito a uso não comercial; confirme com o time se o uso cabe nele ou se a empresa tem licença.
+- Opcional: [`awslocal`](https://github.com/localstack/awscli-local) para inspecionar os recursos
 
 ---
 
-## 5. Stack Tecnológica
+## 9. Como Executar Localmente
 
-| Tecnologia | Função no Ecossistema |
-| --- | --- |
-| **Node.js 20.x & TypeScript** | Runtime de execução com tipagem estática e empacotamento rápido via esbuild |
-| **AWS Lambda & ESM** | Unidades de computação serverless elástica orientada a eventos |
-| **LocalStack** | Emulador local dos serviços da AWS (Lambda, IAM, ESM, Function URL) |
-| **Apache Kafka** | Broker de mensageria para streaming e desacoplamento de eventos |
-| **AKHQ / Kafka UI** | Interface gráfica no navegador para visualizar tópicos, mensagens e partições |
-| **MongoDB** | Banco NoSQL para persistência de propostas e histórico de auditoria |
-| **Vitest** | Framework de testes unitários rápidos com cobertura de 100% dos cenários |
-
----
-
-## 6. Pré-requisitos
-
-Para rodar este projeto localmente:
-
-* [Docker](https://www.docker.com/) e [Docker Compose](https://docs.docker.com/compose/)
-* [Node.js](https://nodejs.org/) (versão 20.x ou superior) e `npm`
-
----
-
-## 7. Testes Automatizados (Unitários)
-
-Os testes cobrem as regras de negócio de cada Lambda de forma isolada, mockando chamadas externas do SDK da AWS, KafkaJS e MongoDB:
-
-* **Motor de Score (`motor-regras-score.spec.ts`):** Validação determinística das regras de cálculo de score, comprometimento de renda e cálculo de limites concedidos por faixa.
-* **Processador de Propostas (`processador-proposta.spec.ts`):** Simulação de lotes Kafka, validação de escrita atômica no MongoDB, mock de invocação síncrona do AWS SDK e despacho no Kafka.
-* **Despachante (`despachante-notificacao.spec.ts`):** Validação de persistência na coleção de auditoria e tratamento de lotes vazios ou corrompidos.
-* **Consulta (`consulta-proposta.spec.ts`):** Validação de busca de proposta por ID, agregação com a coleção de auditoria e retorno de erro 404 para registros inexistentes.
+### Passo 1: Configurar variáveis
 
 ```bash
-# Executar todos os testes unitários
-npm run test
-
-# Executar com relatório de cobertura
-npm run test:coverage
-
+cp .env.example .env
+# edite o .env e preencha LOCALSTACK_AUTH_TOKEN
 ```
 
----
-
-## 8. Como Subir e Executar Localmente
-
-### Passo 1: Instalar Dependências e Compilar as Lambdas
+### Passo 2: Restaurar, testar e empacotar as Lambdas
 
 ```bash
-npm install
-npm run build
-
+dotnet restore
+dotnet test
+./scripts/empacotar-lambdas.sh
 ```
 
-*Gera os pacotes compilados em `dist/*.zip` para carregamento imediato no LocalStack.*
+*Gera um pacote por Lambda em `dist/*.zip` (via `dotnet lambda package`), que o LocalStack carrega na inicialização.*
 
-### Passo 2: Subir os Containers do Ambiente
+### Passo 3: Subir o ambiente
 
 ```bash
 docker compose up -d
-
 ```
 
-*Inicializa o Apache Kafka, o MongoDB, a UI do Kafka (AKHQ na porta 8080) e o LocalStack (porta 4566). O script de inicialização do LocalStack cria automaticamente as 4 Lambdas e os 2 gatilhos de Kafka.*
+*Sobe Kafka, MongoDB, AKHQ (porta `8080`) e LocalStack (porta `4566`). O script em `infra/localstack/init/ready.d/` cria os tópicos, as 4 Lambdas, os 2 Event Source Mappings e a Function URL.*
+
+### Passo 4: Conferir os recursos
+
+```bash
+awslocal lambda list-functions --query "Functions[].FunctionName"
+awslocal lambda list-event-source-mappings --query "EventSourceMappings[].[FunctionArn,State]"
+```
 
 ---
 
-## 9. Como Fazer o Teste Manual Ponta a Ponta
+## 10. Testes Automatizados
 
-### Cenário 1: Disparar Proposta via Interface Gráfica do Kafka (Browser)
+| Camada | Escopo | Comando |
+| --- | --- | --- |
+| **Unitários** | Regras de cada Lambda isoladas, com SDK da AWS, Kafka e MongoDB mockados | `dotnet test --filter "Category!=Integracao"` |
+| **Integração** | Repositórios e idempotência contra MongoDB/Kafka reais via Testcontainers | `dotnet test --filter "Category=Integracao"` |
+| **Cobertura** | Relatório consolidado | `dotnet test --collect:"XPlat Code Coverage"` |
 
-1. Abra a interface web do Kafka no seu navegador: **`http://localhost:8080`**
-2. Vá em **Topics** e selecione o tópico: **`credito.propostas.recebidas`**
-3. Clique em **Produce message** e envie o payload JSON:
+Cenários obrigatórios por Lambda (detalhados nas specs):
+
+- **Motor de score:** tabela de casos de score, faixa de risco e limite, incluindo valores de borda e entradas inválidas.
+- **Processador:** lote com várias mensagens, mensagem duplicada, mensagem corrompida, falha na invocação do motor e falha na publicação após gravar a decisão.
+- **Despachante:** gravação da auditoria, reentrega do mesmo evento sem duplicar e lote vazio ou corrompido.
+- **Consulta:** proposta encontrada com auditoria, `idProposta` ausente (400) e proposta inexistente (404).
+
+---
+
+## 11. Teste Manual Ponta a Ponta
+
+### Cenário 1: Disparar uma proposta pela interface do Kafka
+
+1. Abra **`http://localhost:8080`** (AKHQ).
+2. Em **Topics**, selecione **`credito.propostas.recebidas`**.
+3. Clique em **Produce to topic**, use `PROP-2026-001` como chave e envie:
+
 ```json
 {
   "idProposta": "PROP-2026-001",
@@ -201,47 +204,67 @@ docker compose up -d
   "valorSolicitado": 25000,
   "rendaMensal": 8000
 }
-
 ```
 
+4. Abra o tópico **`credito.propostas.avaliadas`** e confira a decisão com score e limite.
 
-4. Navegue até o tópico **`credito.propostas.avaliadas`** e veja a mensagem de score e limite gerada automaticamente pela esteira serverless!
-
----
-
-### Cenário 2: Consultar o Resultado no MongoDB via Lambda HTTP (Browser ou cURL)
-
-Para verificar como a proposta foi gravada no MongoDB sem precisar rodar comandos no banco:
-
-Abra no navegador ou execute via terminal:
+### Cenário 2: Consultar o resultado pela Function URL
 
 ```bash
-curl "http://localhost:4566/restapis/sua-url/consulta-proposta?idProposta=PROP-2026-001"
+URL=$(awslocal lambda get-function-url-config \
+  --function-name consulta-proposta --query FunctionUrl --output text)
 
+curl "${URL}?idProposta=PROP-2026-001"
 ```
 
-**Resposta JSON retornada:**
+*No LocalStack a URL tem o formato `http://<url-id>.lambda-url.us-east-1.localhost.localstack.cloud:4566/`.*
+
+**Resposta esperada:**
 
 ```json
 {
   "proposta": {
     "idProposta": "PROP-2026-001",
-    "documentoCpf": "12345678901",
+    "documentoCpf": "***.456.789-**",
     "valorSolicitado": 25000,
     "rendaMensal": 8000,
     "pontuacaoScore": 750,
     "faixaRisco": "BAIXO",
     "limiteAprovado": 25000,
-    "status": "APROVADO",
+    "status": "APROVADA",
     "criadoEm": "2026-11-09T10:00:00.000Z",
-    "avaliadoEm": "2026-11-09T10:00:01.000Z"
+    "avaliadoEm": "2026-11-09T10:00:01.000Z",
+    "publicadoEm": "2026-11-09T10:00:01.200Z"
   },
   "auditoria": [
     {
-      "evento": "NOTIFICACAO_DESPACHADA",
+      "evento": "DECISAO_REGISTRADA",
       "registradoEm": "2026-11-09T10:00:02.000Z"
     }
   ]
 }
-
 ```
+
+### Cenário 3: Validar a idempotência
+
+Reenvie **exatamente a mesma mensagem** do Cenário 1 e consulte de novo: a proposta não deve ser recalculada e a auditoria deve continuar com um único registro.
+
+---
+
+## 12. Desenvolvimento Orientado a Especificação
+
+Cada funcionalidade nasce de uma spec em [`_context/`](./_context), implementada na ordem numérica. O fluxo de trabalho:
+
+1. Escolher a próxima spec e abrir uma branch.
+2. Pedir ao Copilot para implementá-la com o prompt de `.github/prompts/`, respeitando `.github/copilot-instructions.md`.
+3. Revisar o PR contra os **critérios de aceite** da spec. Se o código divergir da spec, corrige-se a spec primeiro e depois o código.
+
+---
+
+## 13. Fora do Escopo (por enquanto)
+
+- Deploy em uma conta AWS real (SAM ou CDK)
+- Native AOT e comparação de cold start
+- Schema Registry para os eventos
+- Autenticação na Function URL
+- Pipeline de CI/CD: o projeto foi feito para rodar localmente; basta clonar e seguir a seção 9
