@@ -18,7 +18,6 @@ Histórico de mudanças do projeto, da mais recente para a mais antiga. Formato 
 - `_context/memory.md` deixa de registrar a quantidade de testes.
 - Diagrama de arquitetura do README trocado por um diagrama de sequência, incluindo o passo que marca `publicadoEm`.
 - Spec 00: specs numeradas de `00` a `09`.
-- `.gitignore` passa a ignorar `conteudo-projeto.txt`.
 
 ### Removido
 
