@@ -1,6 +1,6 @@
 # Spec 02 — Contratos de Eventos e Modelo de Dados
 
-- **Status:** Aprovada
+- **Status:** Implementada
 - **Objetivo:** definir, no projeto `MotorCredito.Dominio`, os contratos que trafegam entre as Lambdas (eventos Kafka e invocação do motor), as entidades persistidas no MongoDB, as regras de validação de cada contrato e um único contexto de serialização JSON. As specs 04 a 09 usam estes tipos sem redefini-los.
 - **Depende de:** [Spec 00](./00_especificacao-constituicao-e-convencoes.md), [Spec 01](./01_especificacao-estrutura-da-solution-e-empacotamento-dotnet.md), [ADR 0001](../../docs/adr/0001-invocacao-sincrona-entre-lambdas.md), [ADR 0002](../../docs/adr/0002-runtime-dotnet10-gerenciado-vs-native-aot.md), [ADR 0004](../../docs/adr/0004-idempotencia-e-publicacao-no-kafka.md)
 
