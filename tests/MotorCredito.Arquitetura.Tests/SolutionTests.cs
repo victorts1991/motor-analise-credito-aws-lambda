@@ -7,6 +7,7 @@ namespace MotorCredito.Arquitetura.Tests;
 public sealed class SolutionTests
 {
     // Spec 01 - cobre RN-01, RN-05, CA-04
+    // Spec 02 - cobre RN-13, CA-06
     [Fact]
     public void Deve_conter_todos_os_projetos_de_src_e_tests_Quando_solution_e_lida()
     {
@@ -18,9 +19,9 @@ public sealed class SolutionTests
             .Select(caminho => caminho!.Replace('\\', Path.DirectorySeparatorChar).Replace('/', Path.DirectorySeparatorChar))
             .ToArray();
 
-        projetos.Length.ShouldBe(11);
+        projetos.Length.ShouldBe(12);
         projetos.Count(caminho => caminho.StartsWith($"src{Path.DirectorySeparatorChar}", StringComparison.Ordinal)).ShouldBe(6);
-        projetos.Count(caminho => caminho.StartsWith($"tests{Path.DirectorySeparatorChar}", StringComparison.Ordinal)).ShouldBe(5);
+        projetos.Count(caminho => caminho.StartsWith($"tests{Path.DirectorySeparatorChar}", StringComparison.Ordinal)).ShouldBe(6);
 
         var projetosDaSolution = projetos
             .Select(caminho => Path.GetFullPath(Path.Combine(raiz.FullName, caminho)))

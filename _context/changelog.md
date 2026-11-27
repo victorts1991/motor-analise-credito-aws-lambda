@@ -2,6 +2,28 @@
 
 Histórico de mudanças do projeto, da mais recente para a mais antiga. Formato inspirado no [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/). Regras na spec 00, seção 4.8.
 
+## 2026-11-27
+
+### Adicionado
+
+- Contratos de eventos, requests/responses de score, entidades e enums no projeto `MotorCredito.Dominio`.
+- Conversão estrita de enums, datas UTC e contexto JSON gerado por source generator.
+- Leitura e validação dos contratos, com erros ordenados e sem exposição de valores do payload.
+- Projeto `MotorCredito.Dominio.Tests` e cobertura automatizada para os contratos e validadores.
+
+### Alterado
+
+- Solution ampliada para 12 projetos; testes de arquitetura validam a nova contagem e referência do domínio.
+- Spec 02 implementada.
+- `_context/memory.md` deixa de registrar a quantidade de testes.
+- Diagrama de arquitetura do README trocado por um diagrama de sequência, incluindo o passo que marca `publicadoEm`.
+- Spec 00: specs numeradas de `00` a `09`.
+
+### Removido
+
+- Arquivo `conteudo-projeto.txt`, enviado por engano.
+- Spec 10 (roteiro de teste ponta a ponta): os cenários da seção 11 do README passam a ser critérios de aceite da spec 09, e o script de publicação de eventos de teste passa para a spec 03.
+
 ## 2026-11-21
 
 ### Adicionado

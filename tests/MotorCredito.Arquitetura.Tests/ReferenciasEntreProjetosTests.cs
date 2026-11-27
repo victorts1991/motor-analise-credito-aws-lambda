@@ -17,6 +17,17 @@ public sealed class ReferenciasEntreProjetosTests
         documento.Descendants("PackageReference").ShouldBeEmpty();
     }
 
+    // Spec 02 - cobre RN-13
+    [Fact]
+    public void Deve_referenciar_apenas_Dominio_Quando_projeto_e_Dominio_Tests()
+    {
+        var projeto = EncontrarProjeto("MotorCredito.Dominio.Tests");
+        var documento = Repositorio.CarregarProjeto(projeto);
+        var referencias = documento.ReferenceNames("ProjectReference");
+
+        referencias.ShouldBe(["MotorCredito.Dominio"]);
+    }
+
     // Spec 01 - cobre RN-05
     [Fact]
     public void Deve_referenciar_apenas_Dominio_Quando_projeto_e_Infraestrutura()

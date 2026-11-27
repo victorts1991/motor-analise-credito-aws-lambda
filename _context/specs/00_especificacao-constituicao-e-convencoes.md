@@ -61,7 +61,7 @@ A spec só está pronta quando **todos** os itens abaixo forem verdadeiros:
 
 | Caminho | O que contém |
 | --- | --- |
-| `_context/specs/` | Specs numeradas de `00` a `10` |
+| `_context/specs/` | Specs numeradas de `00` a `09` |
 | `_context/memory.md` | Estado atual do projeto (reescrito a cada spec) |
 | `_context/changelog.md` | Histórico de mudanças (só acrescenta) |
 | `docs/adr/` | Registros de decisão de arquitetura |
@@ -170,7 +170,7 @@ Configurações obrigatórias em todos os `.csproj` (preferencialmente centraliz
 
 ### 4.7 Modelo de spec
 
-Toda spec de `01` a `10` segue este modelo, com estes títulos e nesta ordem. Uma seção que não se aplica continua presente, com o texto "Não se aplica".
+Toda spec de `01` a `09` segue este modelo, com estes títulos e nesta ordem. Uma seção que não se aplica continua presente, com o texto "Não se aplica".
 
 ```markdown
 # Spec NN — <Título>
@@ -240,7 +240,7 @@ Esta spec não gera código próprio, então não tem testes automatizados. Ela 
 
 ## 6. Critérios de Aceitação (CA)
 
-- **CA-01** — As specs `01` a `10` seguem o modelo da seção 4.7, com os 8 títulos na ordem definida.
+- **CA-01** — As specs `01` a `09` seguem o modelo da seção 4.7, com os 8 títulos na ordem definida.
 - **CA-02** — O `.github/copilot-instructions.md` aponta para esta spec e para o `_context/memory.md`.
 - **CA-03** — `_context/memory.md` e `_context/changelog.md` existem e seguem a seção 4.8.
 - **CA-04** — Nenhum `.csproj` referencia um pacote da lista de proibidos.
