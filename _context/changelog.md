@@ -15,6 +15,15 @@ Histórico de mudanças do projeto, da mais recente para a mais antiga. Formato 
 
 - Solution ampliada para 12 projetos; testes de arquitetura validam a nova contagem e referência do domínio.
 - Spec 02 implementada.
+- `_context/memory.md` deixa de registrar a quantidade de testes.
+- Diagrama de arquitetura do README trocado por um diagrama de sequência, incluindo o passo que marca `publicadoEm`.
+- Spec 00: specs numeradas de `00` a `09`.
+- `.gitignore` passa a ignorar `conteudo-projeto.txt`.
+
+### Removido
+
+- Arquivo `conteudo-projeto.txt`, enviado por engano.
+- Spec 10 (roteiro de teste ponta a ponta): os cenários da seção 11 do README passam a ser critérios de aceite da spec 09, e o script de publicação de eventos de teste passa para a spec 03.
 
 ## 2026-11-21
 

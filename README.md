@@ -37,19 +37,30 @@ Em esteiras de crédito com alta concorrência, quatro problemas aparecem com fr
 ## 3. Arquitetura
 
 ```mermaid
-flowchart TD
-    UI["AKHQ (UI do Kafka) / script"] -->|publica evento| T1[["Kafka: credito.propostas.recebidas"]]
-    T1 -->|ESM - lote| L1["λ processador-proposta"]
-    L1 -->|1. upsert idempotente| M1[("MongoDB: propostas")]
-    L1 -->|2. Invoke RequestResponse| L2["λ motor-regras-score<br/>(domínio puro)"]
-    L2 -->|3. score + faixa + limite| L1
-    L1 -->|4. atualiza decisão| M1
-    L1 -->|5. publica decisão| T2[["Kafka: credito.propostas.avaliadas"]]
-    T2 -->|ESM - lote| L3["λ despachante-notificacao"]
-    L3 -->|6. trilha de auditoria idempotente| M2[("MongoDB: auditoria_propostas")]
-    C["Browser / cURL"] -->|GET ?idProposta=| L4["λ consulta-proposta<br/>(Function URL)"]
-    L4 --> M1
-    L4 --> M2
+sequenceDiagram
+    autonumber
+    actor U as Você (AKHQ / cURL)
+    participant TR as Kafka<br/>credito.propostas.recebidas
+    participant P as Lambda<br/>processador-proposta
+    participant M as Lambda<br/>motor-regras-score
+    participant DB as MongoDB
+    participant TA as Kafka<br/>credito.propostas.avaliadas
+    participant D as Lambda<br/>despachante-notificacao
+    participant C as Lambda<br/>consulta-proposta
+
+    U->>TR: publica a proposta (chave = idProposta)
+    TR->>P: entrega o lote (ESM)
+    P->>DB: cria a proposta como EM_PROCESSAMENTO (upsert)
+    P->>M: Invoke RequestResponse
+    M-->>P: score, faixa de risco e limite
+    P->>DB: grava a decisão (APROVADA ou REPROVADA)
+    P->>TA: publica a decisão (chave = idProposta)
+    P->>DB: marca publicadoEm
+    TA->>D: entrega o lote (ESM)
+    D->>DB: grava a auditoria (idempotente)
+    U->>C: GET ?idProposta= (Function URL)
+    C->>DB: lê a proposta e a auditoria
+    C-->>U: JSON com a proposta e a auditoria
 ```
 
 **Ciclo de vida da proposta:** `EM_PROCESSAMENTO → APROVADA | REPROVADA` (+ `publicadoEm` quando o evento de decisão foi confirmado no Kafka).

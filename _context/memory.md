@@ -18,7 +18,6 @@
 | 07 | Lambda processador-proposta | Rascunho |
 | 08 | Lambda despachante-notificacao | Rascunho |
 | 09 | Lambda consulta-proposta | Rascunho |
-| 10 | Roteiro de teste ponta a ponta | Rascunho |
 
 ## Próximo passo
 
