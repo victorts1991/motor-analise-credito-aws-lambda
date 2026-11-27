@@ -35,7 +35,7 @@ Implementar a spec 03 — ambiente Docker e LocalStack.
 
 - .NET SDK 10.0.404 e Amazon.Lambda.Tools 7.0.0.
 - AWS CLI 2.19.4, `awslocal` 0.23.0, Docker 28.0.4.
-- `dotnet build` sem erros nem warnings; `dotnet test` passa com 181 testes.
+- `dotnet build` sem erros nem warnings; `dotnet test` passa por completo.
 - LocalStack 2026.10.8 no plano Hobby: as quatro Lambdas `dotnet10` (`x86_64`) foram criadas com os ZIPs de `dist/` e responderam o texto de esqueleto.
 
 ## Armadilhas descobertas
