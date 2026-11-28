@@ -14,6 +14,8 @@
 
 Arquitetura de referência **serverless orientada a eventos** (EDA) executada **localmente**, sem custo de nuvem. O projeto simula uma esteira transacional de análise de crédito composta por quatro funções **AWS Lambda em C# (.NET 10)**, emuladas no **LocalStack**, que consomem e produzem eventos no **Apache Kafka** via **Event Source Mapping (ESM)**, persistem no **MongoDB** e são cobertas por testes automatizados com **xUnit**.
 
+> **Chegou agora?** A [seção 14](#14-como-estudar-o-projeto) traz um roteiro de leitura do repositório, na ordem que faz mais sentido para entender o projeto.
+
 ---
 
 ## 2. Problema e Solução
@@ -280,3 +282,80 @@ Cada funcionalidade nasce de uma spec em [`_context/`](./_context), implementada
 - Schema Registry para os eventos
 - Autenticação na Function URL
 - Pipeline de CI/CD: o projeto foi feito para rodar localmente; basta clonar e seguir a seção 9
+
+---
+
+## 14. Como Estudar o Projeto
+
+Este repositório foi feito para ser lido, não só executado. As decisões de arquitetura estão registradas em ADRs, as regras estão nas specs, e o código só é escrito depois que a spec que o descreve é aprovada. Por isso, a ordem de leitura importa: quem começa pelo código vê **o que** foi feito, mas não entende **por quê**.
+
+O roteiro abaixo vai do geral para o específico. 
+
+| Etapa | O que ler |
+| --- | --- |
+| 1 | Este README |
+| 2 | As decisões de arquitetura (`docs/adr/`) |
+| 3 | As regras do projeto (`_context/`) |
+| 4 | As specs já implementadas (`_context/specs/`) |
+| 5 | Como o Copilot é guiado (`.github/`) |
+| 6 | O código e os testes (`src/` e `tests/`) |
+| 7 | Rodar e quebrar de propósito |
+
+
+### Etapa 1 — O mapa: este README
+
+**Por que começar aqui:** o README mostra o problema, a arquitetura e o papel de cada Lambda, sem entrar em detalhe. É o mapa que você vai usar para se localizar nas outras etapas.
+
+**Leia com atenção:** as seções 2 (problema e solução), 3 (o diagrama de sequência) e 4 (os componentes). As seções 9 a 11 descrevem o projeto completo. Para saber o que já está implementado, veja a tabela de specs em [`_context/memory.md`](./_context/memory.md).
+
+### Etapa 2 — O porquê: as ADRs
+
+**Por que agora:** cada ADR (*Architecture Decision Record*) registra uma decisão, as alternativas descartadas e o preço que se paga por ela. É ali que está a resposta para "por que não fizeram de outro jeito?". Quem pula esta etapa costuma achar estranhas escolhas que foram feitas de propósito.
+
+**Ordem sugerida em [`docs/adr/`](./docs/adr):**
+
+1. **0002 — runtime `dotnet10`:** a mais simples, boa para conhecer o formato de uma ADR.
+2. **0001 — invocação síncrona entre Lambdas:** por que o motor de score é uma Lambda separada, e por que isso seria um antipadrão em produção.
+3. **0004 — idempotência e publicação no Kafka:** **a mais importante do projeto.** Leia com calma a tabela de reprocessamento da seção 3.
+4. **0003 — LocalStack:** os riscos de emular a AWS localmente e o plano B.
+
+### Etapa 3 — As regras: spec 00, memória e changelog
+
+**Por que agora:** a [spec 00](./_context/specs/00_especificacao-constituicao-e-convencoes.md) é a constituição do projeto. Vale para todo código e toda spec, e prevalece sobre qualquer outra instrução. O [`memory.md`](./_context/memory.md) mostra o estado atual, e o [`changelog.md`](./_context/changelog.md) mostra como se chegou até ele.
+
+**Leia com atenção** na spec 00: as seções 1 (as regras), 2 (a definição de pronto), 3 (quem pode referenciar quem entre os projetos) e 4.7 (o modelo que toda spec segue).
+
+### Etapa 4 — O contrato de cada entrega: as specs implementadas
+
+**Por que agora:** cada spec descreve uma entrega completa: as regras de negócio (RN), os critérios de aceite (CA), os casos de borda (EC) e o teste que cobre cada um. Lendo a spec antes do código, você sabe o que o código deveria fazer e consegue julgar se ele faz.
+
+**Como ler:** leia só as specs com status `Implementada` (veja a tabela do `memory.md`), na ordem numérica. As que estão como `Rascunho` são o futuro. Em cada spec, foque nas seções 1 (RN), 4 (implementação detalhada) e 8 (edge cases). A seção 5 (testes) fica para a etapa 6.
+
+### Etapa 5 — A automação: como o Copilot é guiado
+
+**Por que agora:** o código é escrito pelo GitHub Copilot, guiado pelas specs. Os arquivos de [`.github/`](./.github) traduzem a spec 00 em instruções para ele. Depois de ler as etapas 3 e 4, você vai reconhecer cada regra, e vai entender quais limites foram dados à IA.
+
+**Ordem sugerida:**
+
+1. `copilot-instructions.md`: as regras globais.
+2. `instructions/csharp-lambda.instructions.md`: as regras para o código de `src/`.
+3. `instructions/testes.instructions.md`: as regras para os testes.
+4. `prompts/implementar-especificacao.prompt.md`: o passo a passo que o Copilot segue para implementar uma spec.
+
+### Etapa 6 — A prova: o código e os testes
+
+**Por que só agora:** o código é a confirmação do que as specs prometeram. Leia cada arquivo **junto com o seu teste**: o teste mostra, com exemplos concretos, o comportamento esperado e os casos que o código precisa recusar.
+
+**Ordem sugerida no domínio** (`src/MotorCredito.Dominio/` com `tests/MotorCredito.Dominio.Tests/`):
+
+| Ordem | Código | Teste |
+| --- | --- | --- |
+| 1 | `Propostas/` e `Auditoria/` (enums e entidades) | `Modelo/TiposDoDominioTests.cs` |
+| 2 | `Eventos/` e `Score/` (os contratos) | `Modelo/ProtecaoCpfTests.cs` |
+| 3 | `Serializacao/MotorCreditoJsonContext.cs` | `Serializacao/ContratosJsonTests.cs` |
+| 4 | `Serializacao/EnumEstritoConverter.cs` | `Serializacao/EnumsJsonTests.cs` |
+| 5 | `Serializacao/DataUtcConverter.cs` | `Serializacao/DatasJsonTests.cs` |
+| 6 | `Contratos/RegrasDeCampo.cs` e os validadores | `Contratos/Validador*Tests.cs` |
+| 7 | `Contratos/LeitorDeContratos.cs` | `Contratos/LeitorDeContratosTests.cs` |
+
+Depois do domínio, veja [`tests/MotorCredito.Arquitetura.Tests/`](./tests/MotorCredito.Arquitetura.Tests): são as regras da spec 00 transformadas em testes automáticos. Por fim, leia as Lambdas em `src/MotorCredito.Lambda.*` e os scripts de [`scripts/`](./scripts).

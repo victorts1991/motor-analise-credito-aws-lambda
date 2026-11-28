@@ -2,6 +2,13 @@
 
 Histórico de mudanças do projeto, da mais recente para a mais antiga. Formato inspirado no [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/). Regras na spec 00, seção 4.8.
 
+## 2026-11-28
+
+### Adicionado
+
+- Seção 14 do README (Como Estudar o Projeto), com um roteiro de leitura do repositório em 6 etapas.
+- Chamada para o roteiro no fim da seção 1 do README.
+
 ## 2026-11-27
 
 ### Adicionado
